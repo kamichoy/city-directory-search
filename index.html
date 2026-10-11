@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>City Directory Search</title>
+<style>
+:root{
+  --bg:#f6f4ef;--panel:#ffffff;--ink:#22201c;--muted:#6b665d;--line:#ddd8cc;
+  --accent:#7a3b1d;--accent-ink:#fff;--mark:#ffe08a;--ok:#2f6b3a;--err:#a02c2c;
+}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#1b1a18;--panel:#24221f;--ink:#ece8df;--muted:#a39d91;--line:#3a3732;
+  --accent:#d0875a;--accent-ink:#1b1a18;--mark:#7a5c12;--ok:#7fc28b;--err:#e07a7a;}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,"Segoe UI",sans-serif}
+header{padding:18px 20px 8px}
+h1{margin:0;font-size:20px;letter-spacing:.2px}
+header p{margin:4px 0 0;color:var(--muted);font-size:13px}
+main{display:grid;grid-template-columns:340px 1fr;gap:16px;padding:12px 20px 30px}
+@media (max-width:900px){main{grid-template-columns:1fr}}
+section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0 0 8px}
+label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
+input[type=text],textarea{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
+textarea{min-height:90px;resize:vertical;font-family:ui-monospace,Consolas,monospace;font-size:13px}
+button{padding:7px 12px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}
+#items{max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:6px;margin-top:8px}
+.ygroup{border-bottom:1px solid var(--line)}
+.ygroup:last-child{border-bottom:0}
+.yhead{display:flex;gap:8px;align-items:center;padding:6px 8px;background:var(--bg);font-weight:600;font-size:13px;position:sticky;top:0}
+.yhead .n{color:var(--muted);font-weight:400;font-size:11px}
+.ygroup .item{padding-left:30px;border-bottom:0}
+#decades button{padding:3px 8px;font-size:12px}
+tr.yrow td{background:var(--bg);font-weight:600;font-size:13px;padding:6px 8px}
+tr.yrow td span{color:var(--muted);font-weight:400;font-size:11px;margin-left:6px}
+.item{display:flex;gap:8px;align-items:flex-start;padding:5px 8px;border-bottom:1px solid var(--line);font-size:13px}
+.item:last-child{border-bottom:0}
+.item .yr{font-weight:600;min-width:38px}
+.item .id{color:var(--muted);font-size:11px;word-break:break-all}
+.item .x{margin-left:auto;border:0;background:none;color:var(--muted);padding:0 4px}
+#status{font-size:12px;color:var(--muted);margin-top:8px;min-height:18px}
+.err{color:var(--err)}.ok{color:var(--ok)}
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.tools input{max-width:260px}
+.bar{height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-bottom:10px}
+.bar>div{height:100%;width:0;background:var(--accent);transition:width .2s}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--panel);cursor:pointer;user-select:none}
+td.snip{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;white-space:pre-wrap}
+mark{background:var(--mark);color:inherit;padding:0 1px}
+td.more{cursor:pointer}
+.tog{display:inline-block;margin-left:8px;font-family:-apple-system,"Segoe UI",sans-serif;font-size:11px;color:var(--accent);white-space:nowrap}
+a{color:var(--accent)}
+.tablewrap{max-height:70vh;overflow:auto}
+.empty{color:var(--muted);padding:30px;text-align:center}
+details{margin-top:12px;font-size:13px}
+details summary{cursor:pointer;color:var(--muted)}
+details li{margin:3px 0}
+code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(--bg);padding:1px 4px;border-radius:3px}
+</style>
+</head>
+<body>
+<header>
+  <h1>City Directory Search</h1>
+  <p>Search the OCR full text of city directories on the Internet Archive across many years at once, without downloading the scans. Each result links to its page scan.</p>
+</header>
+<main>
+<div>
+  <section>
+    <h2>1 · Directories</h2>
+    <label>Internet Archive query (default: Indianapolis Public Library city directories collection)</label>
+    <input type="text" id="iaQuery" value='collection:indianapolispubliclibrarycitydirectories'>
+    <div class="row">
+      <button id="btnFind">Load / refresh</button>
+      <button id="btnAll">Select all</button>
+      <button id="btnNone">Clear</button>
+    </div>
+    <label>Select by year range</label>
+    <div class="row" style="margin-top:0">
+      <input type="text" id="yFrom" placeholder="1950" style="width:70px">
+      <span>to</span>
+      <input type="text" id="yTo" placeholder="1970" style="width:70px">
+      <button id="btnRange">Select range</button>
+    </div>
+    <div class="row" id="decades" style="margin-top:6px"></div>
+    <label>Add manually (identifiers or archive.org links, one per line)</label>
+    <textarea id="manual" style="min-height:52px" placeholder="polksindianapoli1967unse"></textarea>
+    <div class="row"><button id="btnAdd">Add</button><span id="count" style="color:var(--muted);font-size:12px"></span></div>
+    <div id="items"><div class="empty">No directories loaded yet</div></div>
+  </section>
+
+  <section style="margin-top:16px">
+    <h2>2 · Search terms</h2>
+    <label>One term per line (addresses, names, businesses)</label>
+    <textarea id="terms" placeholder="1234 N Meridian&#10;Walker Madam C J&#10;Crispus Attucks"></textarea>
+    <div class="row">
+      <button class="primary" id="btnRun">Search</button>
+      <button id="btnStop" disabled>Stop</button>
+    </div>
+    <div id="status"></div>
+    <details>
+      <summary>Search tips</summary>
+      <ul>
+        <li>Put words in quotes to require them to appear together, e.g. <code>"N Meridian" 1234</code>. Case, punctuation and line breaks are ignored, so <code>"N Meridian"</code> also matches <code>N. Meridian</code>.</li>
+        <li>The street directory section (usually in the back) is arranged by street and house number. To look up an address, search <code>house number + street</code>, e.g. <code>1234 N Meridian</code>.</li>
+        <li>Common Polk abbreviations: <code>av</code> avenue, <code>h</code> householder, <code>r</code> resides, <code>wid</code> widow, <code>(c)</code> "colored," used in older directories to designate Black residents.</li>
+        <li>OCR often confuses 0/O and 1/l, and multi-column layouts can run lines together. If nothing comes up, try a shorter term or an alternate spelling.</li>
+        <li>Page links include <code>?q=</code>, so the viewer highlights your term. If the page is off by one, turn a page.</li>
+      </ul>
+    </details>
+  </section>
+</div>
+
+<section>
+  <h2>3 · Results</h2>
+  <div class="bar"><div id="prog"></div></div>
+  <div class="tools">
+    <input type="text" id="filter" placeholder="Filter results…">
+    <button id="btnCsv" disabled>Export CSV</button>
+    <span id="rcount" style="color:var(--muted);font-size:12px"></span>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th data-k="year">Year</th><th data-k="term">Term</th><th>OCR excerpt</th><th data-k="page">Scan</th>
+      </tr></thead>
+      <tbody id="tbody"><tr><td colspan="4" class="empty">Results will appear here</td></tr></tbody>
+    </table>
+  </div>
+</section>
+</main>
+<footer style="padding:0 20px 24px;color:var(--muted);font-size:12px">
+  Directory scans and OCR text are served by the <a href="https://archive.org/details/indianapolispubliclibrarycitydirectories" target="_blank" rel="noopener">Internet Archive</a> from the Indianapolis Public Library's city directory collection. This tool is not affiliated with either. OCR text contains errors, so verify every result against the page scan.
+</footer>
+
+<script>
+(() => {
+const $ = s => document.querySelector(s);
+const COLLECTION_Q = 'collection:indianapolispubliclibrarycitydirectories';
+const LS_ITEMS = 'cds_items_v2', LS_META = 'cds_meta_v1', LS_TERMS = 'cds_terms_v1';
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+let items = store.get(LS_ITEMS, []);          // [{id,title,year,on}]
+let metaCache = store.get(LS_META, {});       // id -> {server,dir,doc}
+let results = [], sortKey = 'year', sortDir = 1, stopFlag = false;
+$('#terms').value = store.get(LS_TERMS, '');
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const status = (msg, cls='') => { $('#status').className = cls; $('#status').innerHTML = msg; };
+
+/* ---------- network: fetch first, JSONP fallback ---------- */
+let jsonpN = 0;
+function jsonp(url, timeout = 30000){
+  return new Promise((resolve, reject) => {
+    const cb = '__cds_cb' + (++jsonpN);
+    const s = document.createElement('script');
+    const t = setTimeout(() => { cleanup(); reject(new Error('timeout')); }, timeout);
+    function cleanup(){ clearTimeout(t); delete window[cb]; s.remove(); }
+    window[cb] = data => { cleanup(); resolve(data); };
+    s.onerror = () => { cleanup(); reject(new Error('jsonp failed')); };
+    s.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cb;
+    document.head.appendChild(s);
+  });
+}
+async function getJSON(url){
+  try{
+    const r = await fetch(url);
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  }catch(e){
+    return await jsonp(url);
+  }
+}
+
+/* ---------- items ---------- */
+function yearOf(o){
+  const src = [o.year, o.date, o.title, o.identifier].filter(Boolean).join(' ');
+  const m = String(src).match(/\b(18|19|20)\d{2}\b/) || String(o.identifier||'').match(/(18|19|20)\d{2}/);
+  return m ? +m[0] : null;
+}
+function saveItems(){ store.set(LS_ITEMS, items); renderItems(); }
+function addItem(o){
+  if(items.some(i => i.id === o.id)) return false;
+  items.push(o); return true;
+}
+function groups(){
+  const g = new Map();
+  items.forEach((it, i) => { const k = it.year ?? 'none'; if(!g.has(k)) g.set(k, []); g.get(k).push(i); });
+  return g;
+}
+function renderItems(){
+  items.sort((a,b) => (a.year||9999) - (b.year||9999) || (a.title||'').localeCompare(b.title||'') || a.id.localeCompare(b.id));
+  const box = $('#items');
+  if(!items.length){ box.innerHTML = '<div class="empty">No directories loaded yet</div>'; $('#count').textContent=''; $('#decades').innerHTML=''; return; }
+  let html = '';
+  for(const [yr, idx] of groups()){
+    const on = idx.filter(i => items[i].on).length;
+    html += `<div class="ygroup">
+      <div class="yhead">
+        <input type="checkbox" data-year="${yr}" ${on === idx.length ? 'checked' : ''} ${on && on < idx.length ? 'data-partial="1"' : ''}>
+        <span>${yr === 'none' ? 'Undated' : yr}</span>
+        <span class="n">${idx.length > 1 ? idx.length + ' volumes' : ''}</span>
+      </div>` +
+      idx.map(i => { const it = items[i]; return `
+      <div class="item">
+        <input type="checkbox" data-i="${i}" ${it.on ? 'checked' : ''}>
+        <div>${esc(it.title || it.id)}${it.volume ? ' · ' + esc(it.volume) : ''}<div class="id">${esc(it.id)}</div></div>
+        <button class="x" data-del="${i}" title="Remove">×</button>
+      </div>`; }).join('') + `</div>`;
+  }
+  box.innerHTML = html;
+  box.querySelectorAll('[data-partial]').forEach(cb => cb.indeterminate = true);
+  const years = new Set(items.filter(i => i.on).map(i => i.year));
+  $('#count').textContent = `${items.filter(i=>i.on).length} selected (${years.size} years) of ${items.length} volumes`;
+  // decade shortcuts
+  const decs = [...new Set(items.filter(i => i.year).map(i => Math.floor(i.year / 10) * 10))].sort((a,b) => a-b);
+  $('#decades').innerHTML = decs.map(d => `<button data-dec="${d}">${d}s</button>`).join('');
+}
+function selectRange(a, b, add = false){
+  items.forEach(it => {
+    const inR = it.year != null && it.year >= a && it.year <= b;
+    it.on = add ? (it.on || inR) : inR;
+  });
+  saveItems();
+}
+$('#btnRange').onclick = () => {
+  const a = parseInt($('#yFrom').value) || 0, b = parseInt($('#yTo').value) || 9999;
+  selectRange(Math.min(a,b), Math.max(a,b));
+};
+$('#decades').addEventListener('click', e => {
+  const d = e.target.dataset.dec; if(d == null) return;
+  selectRange(+d, +d + 9, e.shiftKey || e.ctrlKey || e.metaKey);
+});
+$('#items').addEventListener('change', e => {
+  if(e.target.dataset.i != null){ items[+e.target.dataset.i].on = e.target.checked; saveItems(); }
+  else if(e.target.dataset.year != null){
+    const k = e.target.dataset.year;
+    items.forEach(it => { if(String(it.year ?? 'none') === k) it.on = e.target.checked; });
+    saveItems();
+  }
+});
+$('#items').addEventListener('click', e => {
+  if(e.target.dataset.del != null){ items.splice(+e.target.dataset.del, 1); saveItems(); }
+});
+$('#btnAll').onclick = () => { items.forEach(i => i.on = true); saveItems(); };
+$('#btnNone').onclick = () => { items.forEach(i => i.on = false); saveItems(); };
+
+const first = v => Array.isArray(v) ? v[0] : v;
+async function loadQuery(q){
+  status('Loading directory list…');
+  try{
+    const url = 'https://archive.org/advancedsearch.php?q=' + encodeURIComponent(q) +
+      '&fl[]=identifier&fl[]=title&fl[]=year&fl[]=date&fl[]=volume&rows=1000&sort[]=year+asc&output=json';
+    const data = await getJSON(url);
+    const docs = data?.response?.docs || [];
+    let n = 0;
+    docs.forEach(d => {
+      const o = {id:d.identifier, title:first(d.title) || '', volume:first(d.volume) || '',
+                 year:yearOf({year:first(d.year), date:first(d.date), title:first(d.title), identifier:d.identifier}), on:false};
+      const ex = items.find(i => i.id === o.id);
+      if(ex){ ex.title = o.title || ex.title; ex.volume = o.volume || ex.volume; ex.year = o.year ?? ex.year; }
+      else { items.push(o); n++; }
+    });
+    saveItems();
+    const yrs = new Set(items.map(i => i.year).filter(Boolean));
+    status(`Loaded ${docs.length} volumes (${n} new) covering ${yrs.size} years. Check the years you want to search.`, 'ok');
+  }catch(e){ status('Load failed: ' + esc(e.message), 'err'); }
+}
+$('#btnFind').onclick = () => { const q = $('#iaQuery').value.trim(); if(q) loadQuery(q); };
+
+$('#btnAdd').onclick = async () => {
+  const lines = $('#manual').value.split(/\s+/).map(s => s.trim()).filter(Boolean);
+  const ids = lines.map(s => { const m = s.match(/archive\.org\/(?:details|download|stream)\/([^\/?#]+)/); return m ? m[1] : s; });
+  let n = 0;
+  for(const id of ids){
+    let title = '', year = yearOf({identifier:id});
+    try{
+      const m = await getJSON('https://archive.org/metadata/' + encodeURIComponent(id) + '/metadata');
+      const md = m.result || {};
+      title = Array.isArray(md.title) ? md.title[0] : (md.title || '');
+      year = yearOf({year:md.year, date:md.date, title, identifier:id});
+    }catch(e){}
+    if(addItem({id, title, year, on:true})) n++;
+  }
+  $('#manual').value = '';
+  saveItems();
+  status(`Added ${n} volume${n === 1 ? '' : 's'}.`, 'ok');
+};
+
+/* ---------- search inside ---------- */
+async function getMeta(id){
+  if(metaCache[id] && metaCache[id].v === 2) return metaCache[id];
+  const m = await getJSON('https://archive.org/metadata/' + encodeURIComponent(id));
+  if(!m || !m.server) throw new Error('Item metadata not found');
+  const files = (m.files || []).map(f => f.name);
+  // the "doc" is the book prefix shared by its _djvu.xml / _jp2.zip / _scandata.xml files
+  const f = files.find(n => /_djvu\.xml$/.test(n)) || files.find(n => /_jp2\.(zip|tar)$/.test(n)) ||
+            files.find(n => /_scandata\.xml$/.test(n));
+  const doc = f ? f.replace(/_(djvu\.xml|jp2\.zip|jp2\.tar|scandata\.xml)$/, '') : id;
+  const txt = files.find(n => n === doc + '_djvu.txt') || files.find(n => /_djvu\.txt$/.test(n)) || null;
+  const pages = parseInt(first(m.metadata && m.metadata.imagecount)) || null;
+  const meta = {v:2, server: m.server, dir: m.dir, doc, txt, pages};
+  metaCache[id] = meta; store.set(LS_META, metaCache);
+  return meta;
+}
+
+/* ---------- fallback for items missing from the full-text index ----------
+   Downloads the item's OCR text (_djvu.txt, usually tens of MB) once per session and searches it here. */
+const textCache = new Map();   // id -> Promise<{text, pages: [startOffsets] | null}>
+function loadText(item, meta){
+  if(textCache.has(item.id)) return textCache.get(item.id);
+  const p = (async () => {
+    if(!meta.txt) throw new Error('Item is not indexed and has no OCR text file');
+    const r = await fetch(`https://archive.org/download/${encodeURIComponent(item.id)}/${encodeURIComponent(meta.txt)}`);
+    if(!r.ok) throw new Error('OCR text download failed: HTTP ' + r.status);
+    const text = await r.text();
+    // page breaks are form feeds when present; otherwise page numbers are estimated by position
+    let starts = null;
+    if(text.includes('\f')){ starts = [0]; for(let i = 0; i < text.length; i++) if(text[i] === '\f') starts.push(i + 1); }
+    return {text, starts};
+  })();
+  p.catch(() => textCache.delete(item.id));
+  textCache.set(item.id, p);
+  return p;
+}
+const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const wordsOf = s => s.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+async function searchLocal(item, meta, term){
+  const {text, starts} = await loadText(item, meta);
+  const {query, phrases} = parseTerm(term);
+  const words = wordsOf(query);
+  if(!words.length) return [];
+  // anchor on the first quoted phrase if any (words joined by any punctuation/space), else the first word
+  const anchorWords = phrases.length ? wordsOf(phrases[0]) : [words[0]];
+  const anchor = new RegExp('(?<![\\p{L}\\p{N}])' + anchorWords.map(reEsc).join('[^\\p{L}\\p{N}]+') + '(?![\\p{L}\\p{N}])', 'giu');
+  const hl = new RegExp('(?<![\\p{L}\\p{N}])(' + [...new Set(words)].map(reEsc).join('|') + ')(?![\\p{L}\\p{N}])', 'giu');
+  const out = [], W = 120;
+  let m;
+  while((m = anchor.exec(text)) && out.length < 300){
+    let page, approx = false, pa = 0, pb = text.length;
+    if(starts){
+      let lo = 0, hi = starts.length - 1;
+      while(lo < hi){ const mid = (lo + hi + 1) >> 1; if(starts[mid] <= m.index) lo = mid; else hi = mid - 1; }
+      page = lo; pa = starts[lo]; pb = lo + 1 < starts.length ? starts[lo + 1] - 1 : text.length;
+    } else if(meta.pages){ page = Math.round(m.index / text.length * (meta.pages - 1)); approx = true; }
+    // snippet window stays inside the page
+    const a = Math.max(pa, m.index - W), b = Math.min(pb, m.index + m[0].length + W);
+    const win = text.slice(a, b);
+    const nw = norm(win);
+    if(!phrases.every(p => nw.includes(p))) continue;
+    if(!words.every(w => nw.includes(' ' + w.toLowerCase() + ' '))) continue;
+    if(out.length && out[out.length - 1]._b > m.index && !phrases.length) continue;   // same hit already covered
+    const snippet = (a > 0 ? '…' : '') + win.replace(/\f/g, ' ').replace(hl, '{{{$1}}}') + (b < text.length ? '…' : '');
+    out.push({year:item.year, id:item.id, title:item.title || item.id, volume:item.volume || '', term, text:snippet, page, approx, local:true, _b:b});
+  }
+  return out;
+}
+/* "quoted phrase" support: the API matches words; phrases are enforced here on the snippet.
+   Normalizing drops punctuation/case/line breaks, so "N Meridian" also matches "N. Meridian". */
+// match markers: newer API uses <IA_FTS_MATCH>…</IA_FTS_MATCH>, older uses {{{…}}}
+const MARKS = /\{\{\{|\}\}\}|<\/?IA_FTS_MATCH>/gi;
+const stripMarks = s => String(s).replace(MARKS, '');
+const norm = s => ' ' + stripMarks(s).toLowerCase()
+  .replace(/[^\p{L}\p{N}]+/gu, ' ').trim() + ' ';
+/* API snippets are whole OCR "paragraphs" — on directory pages that can be an entire column.
+   Cut to a window around the hit (one that satisfies any quoted phrase), keeping the full text for expanding. */
+function trimSnippet(raw, phrases, W = 130){
+  const s = String(raw).replace(/\{\{\{|<IA_FTS_MATCH>/gi, '\u0001').replace(/\}\}\}|<\/IA_FTS_MATCH>/gi, '\u0002');
+  if(s.length <= W * 2.6) return null;
+  const starts = [];
+  for(let i = 0; i < s.length; i++) if(s[i] === '\u0001') starts.push(i);
+  if(!starts.length) return null;
+  const cut = st => {
+    let a = Math.max(0, st - W), b = Math.min(s.length, st + W);
+    // extend to word boundaries and past the close of any open highlight
+    while(a > 0 && !/\s/.test(s[a - 1])) a--;
+    while(b < s.length && !/\s/.test(s[b])) b++;
+    let w = s.slice(a, b);
+    w = w.replace(/^[^\u0001]*?\u0002/, m => m.replace('\u0002', ''));       // dangling close at start
+    if((w.match(/\u0001/g) || []).length > (w.match(/\u0002/g) || []).length) w += '\u0002';
+    return (a > 0 ? '… ' : '') + w.trim() + (b < s.length ? ' …' : '');
+  };
+  let pick = null;
+  for(const st of starts){ const w = cut(st); if(phrases.every(p => norm(w).includes(p))){ pick = w; break; } }
+  pick = pick || cut(starts[0]);
+  return pick.replace(/\u0001/g, '{{{').replace(/\u0002/g, '}}}');
+}
+function parseTerm(raw){
+  const phrases = [];
+  const rest = raw.replace(/["“”「」]([^"“”「」]+)["“”「」]/g, (_, p) => { phrases.push(p); return ' ' + p + ' '; });
+  return {query: rest.replace(/["“”「」]/g, ' ').replace(/\s+/g, ' ').trim(), phrases: phrases.map(norm)};
+}
+async function searchInside(item, term){
+  const meta = await getMeta(item.id);
+  if(item.unindexed) return searchLocal(item, meta, term);
+  const {query, phrases} = parseTerm(term);
+  const url = `https://${meta.server}/fulltext/inside.php?item_id=${encodeURIComponent(item.id)}` +
+    `&doc=${encodeURIComponent(meta.doc)}&path=${encodeURIComponent(meta.dir)}&q=${encodeURIComponent(query)}`;
+  const data = await getJSON(url);
+  if(data && (data.indexed === false || (data.error && /not yet indexed|not indexed/i.test(data.error)))){
+    item.unindexed = true;
+    return searchLocal(item, meta, term);
+  }
+  if(data && data.error) throw new Error(data.error);
+  let matches = data?.matches || [];
+  if(phrases.length) matches = matches.filter(mt => { const t = norm(mt.text || ''); return phrases.every(p => t.includes(p)); });
+  return matches.map(mt => {
+    const par = (mt.par && mt.par[0]) || {};
+    const page = par.page ?? (par.boxes && par.boxes[0] && par.boxes[0].page);
+    const short = trimSnippet(mt.text || '', phrases);
+    return {year:item.year, id:item.id, title:item.title || item.id, volume:item.volume || '', term,
+            text: short || mt.text || '', full: short ? mt.text : null, page};
+  });
+}
+function pageUrl(r){
+  const base = `https://archive.org/details/${encodeURIComponent(r.id)}`;
+  const p = (r.page != null) ? `/page/n${r.page}` : '';
+  return `${base}${p}/mode/2up?q=${encodeURIComponent(parseTerm(r.term).query)}`;
+}
+
+async function pool(tasks, n, onDone){
+  let i = 0;
+  const workers = Array.from({length:n}, async () => {
+    while(i < tasks.length && !stopFlag){ const t = tasks[i++]; await t(); onDone(); }
+  });
+  await Promise.all(workers);
+}
+
+$('#btnRun').onclick = async () => {
+  const terms = $('#terms').value.split('\n').map(s => s.trim()).filter(Boolean);
+  store.set(LS_TERMS, $('#terms').value);
+  const sel = items.filter(i => i.on);
+  if(!sel.length){ status('Select at least one directory first.', 'err'); return; }
+  if(!terms.length){ status('Enter a search term.', 'err'); return; }
+  results = []; render(); stopFlag = false;
+  $('#btnRun').disabled = true; $('#btnStop').disabled = false;
+  const errors = [];
+  const tasks = [];
+  sel.forEach(it => terms.forEach(t => tasks.push(async () => {
+    try{ results.push(...await searchInside(it, t)); render(); }
+    catch(e){ errors.push(`${it.year ?? it.id} · ${t}: ${e.message}`); }
+  })));
+  let done = 0;
+  status(`Searching… 0 / ${tasks.length}`);
+  await pool(tasks, 3, () => {
+    done++; $('#prog').style.width = (done / tasks.length * 100) + '%';
+    status(`Searching… ${done} / ${tasks.length}, ${results.length} hits so far`);
+  });
+  $('#btnRun').disabled = false; $('#btnStop').disabled = true;
+  let msg = `${stopFlag ? 'Stopped' : 'Done'}: ${sel.length} volumes × ${terms.length} terms, ${results.length} hits.`;
+  const loc = sel.filter(i => i.unindexed);
+  if(loc.length) msg += `<br>${loc.map(i => i.year ?? i.id).join(', ')} not in the full-text index; searched the OCR text instead (marked "OCR text"; page numbers may be estimates).`;
+  if(errors.length) msg += `<br><span class="err">${errors.length} failed:</span>` + errors.slice(0,5).map(esc).join('<br>');
+  status(msg, errors.length ? '' : 'ok');
+};
+$('#btnStop').onclick = () => { stopFlag = true; };
+
+/* ---------- results ---------- */
+function snippetHTML(t){
+  const s = String(t).replace(/[ \t]{2,}/g, ' ').replace(/\{\{\{|<IA_FTS_MATCH>/gi, '\u0001').replace(/\}\}\}|<\/IA_FTS_MATCH>/gi, '\u0002');
+  return esc(s).replace(/\u0001/g, '<mark>').replace(/\u0002/g, '</mark>');
+}
+function filtered(){
+  const f = $('#filter').value.trim().toLowerCase();
+  let r = f ? results.filter(x => (stripMarks(x.text) + ' ' + x.term + ' ' + x.year).toLowerCase().includes(f)) : results.slice();
+  r.sort((a,b) => {
+    const va = a[sortKey] ?? '', vb = b[sortKey] ?? '';
+    return (va > vb ? 1 : va < vb ? -1 : 0) * sortDir || (a.year??0) - (b.year??0) ||
+           a.id.localeCompare(b.id) || ((a.page??0) - (b.page??0));
+  });
+  return r;
+}
+function render(){
+  const r = filtered();
+  $('#btnCsv').disabled = !results.length;
+  $('#rcount').textContent = results.length ? `Showing ${r.length} of ${results.length}` : '';
+  if(!r.length){ $('#tbody').innerHTML = `<tr><td colspan="4" class="empty">${results.length ? 'No results match the filter' : 'No results'}</td></tr>`; return; }
+  const multiVol = new Set();
+  const perYear = {};
+  results.forEach(x => { (perYear[x.year] ||= new Set()).add(x.id); });
+  Object.keys(perYear).forEach(y => { if(perYear[y].size > 1) multiVol.add(String(y)); });
+  const counts = {};
+  r.forEach(x => counts[x.year] = (counts[x.year] || 0) + 1);
+  let last, html = '';
+  const grouped = sortKey === 'year';
+  r.forEach(x => {
+    if(grouped && x.year !== last){
+      last = x.year;
+      html += `<tr class="yrow"><td colspan="4">${x.year ?? 'Undated'}<span>${counts[x.year]} hit${counts[x.year] === 1 ? '' : 's'}</span></td></tr>`;
+    }
+    const vol = multiVol.has(String(x.year)) ? `<div class="id">${esc(x.volume || x.id)}</div>` : '';
+    html += `
+    <tr>
+      <td>${x.year ?? '?'}${vol}</td>
+      <td>${esc(x.term)}</td>
+      <td class="snip${x.full ? ' more' : ''}" data-r="${results.indexOf(x)}">${snippetHTML(x._open ? x.full : x.text)}${x.full ? `<span class="tog">${x._open ? 'Collapse' : 'Show full text'}</span>` : ''}</td>
+      <td><a href="${pageUrl(x)}" target="_blank" rel="noopener">${x.approx ? '≈' : ''}n${x.page ?? '?'}</a>${x.local ? `<div class="id" title="${x.approx ? 'Not in the full-text index: result from the OCR text, page number estimated from position' : 'Not in the full-text index: result from the OCR text'}">OCR text</div>` : ''}</td>
+    </tr>`;
+  });
+  $('#tbody').innerHTML = html;
+}
+$('#filter').addEventListener('input', render);
+$('#tbody').addEventListener('click', e => {
+  const td = e.target.closest('td.more'); if(!td || getSelection().toString()) return;   // don't toggle while selecting text
+  const x = results[+td.dataset.r]; if(!x) return;
+  x._open = !x._open;
+  td.innerHTML = snippetHTML(x._open ? x.full : x.text) + `<span class="tog">${x._open ? 'Collapse' : 'Show full text'}</span>`;
+});
+document.querySelectorAll('th[data-k]').forEach(th => th.onclick = () => {
+  const k = th.dataset.k; sortDir = (sortKey === k) ? -sortDir : 1; sortKey = k; render();
+});
+$('#btnCsv').onclick = () => {
+  const rows = [['year','term','snippet','scan_index','link','title','volume','identifier']].concat(filtered().map(x =>
+    [x.year ?? '', x.term, stripMarks(x.text).replace(/\s+/g,' '), x.page ?? '', pageUrl(x), x.title, x.volume, x.id]));
+  const csv = '﻿' + rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = 'directory_search_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+
+/* ---------- init ---------- */
+renderItems();
+if(!items.length) loadQuery(COLLECTION_Q);
+})();
+</script>
+</body>
+</html>
