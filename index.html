@@ -30,12 +30,17 @@ button.primary{background:var(--accent);border-color:var(--accent);color:var(--a
 button:disabled{opacity:.5;cursor:default}
 .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}
 #items{max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:6px;margin-top:8px}
+/* both columns end at the same height: the last panel in each stretches, and the volume list fills the left one */
+main>div{min-width:0;display:flex;flex-direction:column}
+main>div>section:last-child{flex:1;display:flex;flex-direction:column}
+.pick{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);flex:1;display:flex;flex-direction:column}
+.pick #items{flex:1 1 0;min-height:320px;max-height:none}
 .ygroup{border-bottom:1px solid var(--line)}
 .ygroup:last-child{border-bottom:0}
 .yhead{display:flex;gap:8px;align-items:center;padding:6px 8px;background:var(--bg);font-weight:600;font-size:13px;position:sticky;top:0}
 .yhead .n{color:var(--muted);font-weight:400;font-size:11px}
 .ygroup .item{padding-left:30px;border-bottom:0}
-#decades button,#presets button{padding:3px 8px;font-size:12px}
+#decades button,#presets button,#prune button{padding:3px 8px;font-size:12px}
 tr.yrow td{background:var(--bg);font-weight:600;font-size:13px;padding:6px 8px}
 tr.yrow td span{color:var(--muted);font-weight:400;font-size:11px;margin-left:6px}
 .item{display:flex;gap:8px;align-items:flex-start;padding:5px 8px;border-bottom:1px solid var(--line);font-size:13px}
@@ -78,8 +83,6 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
     <textarea id="iaQuery" style="min-height:74px">collection:indianapolispubliclibrarycitydirectories</textarea>
     <div class="row">
       <button id="btnFind">Load / refresh</button>
-      <button id="btnAll">Select all</button>
-      <button id="btnNone">Clear</button>
     </div>
     <details>
       <summary>Query notes: filtering and other collections</summary>
@@ -105,21 +108,35 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
         <button data-q='collection:ncdir'>North Carolina (statewide)</button>
       </div>
     </details>
-    <label>Select by year range</label>
-    <div class="row" style="margin-top:0">
-      <input type="text" id="yFrom" placeholder="1950" style="width:70px">
-      <span>to</span>
-      <input type="text" id="yTo" placeholder="1970" style="width:70px">
-      <button id="btnRange">Select range</button>
-    </div>
-    <div class="row" id="decades" style="margin-top:6px"></div>
     <label>Add manually (identifiers or archive.org links, one per line)</label>
     <textarea id="manual" style="min-height:52px" placeholder="polksindianapoli1967unse"></textarea>
-    <div class="row"><button id="btnAdd">Add</button><span id="count" style="color:var(--muted);font-size:12px"></span></div>
-    <div id="items"><div class="empty">No directories loaded yet</div></div>
-  </section>
+    <div class="row"><button id="btnAdd">Add to list</button></div>
 
-  <section style="margin-top:16px">
+    <div class="pick">
+      <label style="margin-top:0">Choose volumes to search: by year range</label>
+      <div class="row" style="margin-top:0">
+        <input type="text" id="yFrom" placeholder="1950" style="width:70px">
+        <span>to</span>
+        <input type="text" id="yTo" placeholder="1970" style="width:70px">
+        <button id="btnRange">Select range</button>
+      </div>
+      <div class="row" id="decades" style="margin-top:6px"></div>
+      <div class="row">
+        <button id="btnAll">Select all</button>
+        <button id="btnNone">Clear selection</button>
+        <span id="count" style="color:var(--muted);font-size:12px"></span>
+      </div>
+      <div id="items"><div class="empty">No directories loaded yet</div></div>
+      <div class="row" id="prune">
+        <button id="btnDropOff">Remove unselected from list</button>
+        <button id="btnDropAll">Empty list</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div>
+  <section>
     <h2>2 · Search terms</h2>
     <label>One term per line (addresses, names, businesses)</label>
     <textarea id="terms" placeholder="1234 N Meridian&#10;Walker Madam C J&#10;Crispus Attucks"></textarea>
@@ -139,9 +156,8 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
       </ul>
     </details>
   </section>
-</div>
 
-<section>
+<section style="margin-top:16px">
   <h2>3 · Results</h2>
   <div class="bar"><div id="prog"></div></div>
   <div class="tools">
@@ -158,6 +174,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
     </table>
   </div>
 </section>
+</div>
 </main>
 <footer style="padding:0 20px 24px;color:var(--muted);font-size:12px">
   Directory scans and OCR text are served by the <a href="https://archive.org/details/indianapolispubliclibrarycitydirectories" target="_blank" rel="noopener">Internet Archive</a> from the Indianapolis Public Library's city directory collection. This tool is not affiliated with either. OCR text contains errors, so verify every result against the page scan.
@@ -278,6 +295,15 @@ $('#items').addEventListener('click', e => {
 });
 $('#btnAll').onclick = () => { items.forEach(i => i.on = true); saveItems(); };
 $('#btnNone').onclick = () => { items.forEach(i => i.on = false); saveItems(); };
+$('#btnDropOff').onclick = () => {
+  const n = items.filter(i => !i.on).length;
+  if(!n || !confirm(`Remove ${n} unselected volume${n === 1 ? '' : 's'} from the list?`)) return;
+  items = items.filter(i => i.on); saveItems();
+};
+$('#btnDropAll').onclick = () => {
+  if(!items.length || !confirm(`Remove all ${items.length} volumes from the list?`)) return;
+  items = []; saveItems();
+};
 
 const first = v => Array.isArray(v) ? v[0] : v;
 async function loadQuery(q){
