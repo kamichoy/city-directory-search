@@ -30,7 +30,8 @@ Then visit `http://localhost:8000`. The file can also be hosted as-is on any sta
 
 On first load the tool fetches the list of volumes in the default collection. Nothing is selected until you choose which years to search.
 
-- **Load / refresh** runs the Internet Archive query in the box. Change the query to load a different collection (for example `collection:someothercollection`, or any advanced search query).
+- **Load / refresh** runs the Internet Archive query in the box and adds the matching volumes to the list. Change the query to load a different collection; any Internet Archive advanced search query works.
+- **Query notes** under the box lists filter syntax and one-click queries for other cities. Many library collections mix directories with other genealogy material, so narrow them by title, e.g. `collection:allen_county AND title:("fort wayne" AND "city directory")`.
 - **Select by year range** selects every volume between two years.
 - **Decade buttons** select a decade. Hold Shift, Ctrl, or Cmd while clicking to add the decade to the current selection instead of replacing it.
 - **Year checkboxes** toggle all volumes for a year. Each volume is listed under its year with its own checkbox, and the × button removes it from the list.

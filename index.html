@@ -35,7 +35,7 @@ button:disabled{opacity:.5;cursor:default}
 .yhead{display:flex;gap:8px;align-items:center;padding:6px 8px;background:var(--bg);font-weight:600;font-size:13px;position:sticky;top:0}
 .yhead .n{color:var(--muted);font-weight:400;font-size:11px}
 .ygroup .item{padding-left:30px;border-bottom:0}
-#decades button{padding:3px 8px;font-size:12px}
+#decades button,#presets button{padding:3px 8px;font-size:12px}
 tr.yrow td{background:var(--bg);font-weight:600;font-size:13px;padding:6px 8px}
 tr.yrow td span{color:var(--muted);font-weight:400;font-size:11px;margin-left:6px}
 .item{display:flex;gap:8px;align-items:flex-start;padding:5px 8px;border-bottom:1px solid var(--line);font-size:13px}
@@ -75,12 +75,36 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
   <section>
     <h2>1 · Directories</h2>
     <label>Internet Archive query (default: Indianapolis Public Library city directories collection)</label>
-    <input type="text" id="iaQuery" value='collection:indianapolispubliclibrarycitydirectories'>
+    <textarea id="iaQuery" style="min-height:74px">collection:indianapolispubliclibrarycitydirectories</textarea>
     <div class="row">
       <button id="btnFind">Load / refresh</button>
       <button id="btnAll">Select all</button>
       <button id="btnNone">Clear</button>
     </div>
+    <details>
+      <summary>Query notes: filtering and other collections</summary>
+      <ul>
+        <li>A collection's ID is the last part of its address: <code>archive.org/details/allen_county</code> is <code>collection:allen_county</code>.</li>
+        <li>Many library collections mix directories with yearbooks, family histories and other genealogy material. Narrow them by title: <code>collection:allen_county AND title:("city directory")</code>.</li>
+        <li>Add the city to keep one place only: <code>title:("fort wayne" AND "city directory")</code>. Combine conditions with <code>AND</code>, <code>OR</code>, <code>NOT</code> and parentheses.</li>
+        <li>Limit by year with <code>AND year:[1900 TO 1920]</code>. Volumes with no year in their catalog record are left out by this filter.</li>
+        <li>Filter by title, not subject. Subjects are inconsistent, and many directories are tagged only <code>genealogy</code>.</li>
+        <li>A query loads at most 1,000 volumes, so filter large collections first. Loading adds to the list below; it does not replace it. Remove volumes with × to keep cities apart.</li>
+      </ul>
+      <div style="color:var(--muted);font-size:12px;margin-top:8px">Common collections (click to fill the query box, then Load):</div>
+      <div class="row" id="presets" style="margin-top:6px">
+        <button data-q='collection:indianapolispubliclibrarycitydirectories'>Indianapolis, IN</button>
+        <button data-q='collection:allen_county AND title:("fort wayne" AND "city directory")'>Fort Wayne, IN</button>
+        <button data-q='collection:akron-summit-directories'>Akron, OH</button>
+        <button data-q='collection:brooklyncitydirectoriesonmicrofiche'>Brooklyn, NY</button>
+        <button data-q='collection:desmoinesandpolkcountycitydirectories'>Des Moines, IA</button>
+        <button data-q='collection:newbedfordfreenewbedfordcitydirectories'>New Bedford, MA</button>
+        <button data-q='collection:newarkcitydirectories'>Newark, NJ</button>
+        <button data-q='collection:cshcitydirectories'>Sacramento, CA</button>
+        <button data-q='collection:saginaw-city-directories'>Saginaw, MI</button>
+        <button data-q='collection:ncdir'>North Carolina (statewide)</button>
+      </div>
+    </details>
     <label>Select by year range</label>
     <div class="row" style="margin-top:0">
       <input type="text" id="yFrom" placeholder="1950" style="width:70px">
@@ -276,7 +300,11 @@ async function loadQuery(q){
     status(`Loaded ${docs.length} volumes (${n} new) covering ${yrs.size} years. Check the years you want to search.`, 'ok');
   }catch(e){ status('Load failed: ' + esc(e.message), 'err'); }
 }
-$('#btnFind').onclick = () => { const q = $('#iaQuery').value.trim(); if(q) loadQuery(q); };
+$('#btnFind').onclick = () => { const q = $('#iaQuery').value.replace(/\s+/g, ' ').trim(); if(q) loadQuery(q); };
+$('#presets').addEventListener('click', e => {
+  const q = e.target.dataset.q; if(q == null) return;
+  $('#iaQuery').value = q; $('#iaQuery').focus();
+});
 
 $('#btnAdd').onclick = async () => {
   const lines = $('#manual').value.split(/\s+/).map(s => s.trim()).filter(Boolean);
@@ -425,7 +453,9 @@ async function searchInside(item, term){
 function pageUrl(r){
   const base = `https://archive.org/details/${encodeURIComponent(r.id)}`;
   const p = (r.page != null) ? `/page/n${r.page}` : '';
-  return `${base}${p}/mode/2up?q=${encodeURIComponent(parseTerm(r.term).query)}`;
+  // keep quoted phrases quoted in the viewer's search box (curly/CJK quotes become straight ones)
+  const q = r.term.replace(/[“”「」]/g, '"').replace(/\s+/g, ' ').trim();
+  return `${base}${p}/mode/2up?q=${encodeURIComponent(q)}`;
 }
 
 async function pool(tasks, n, onDone){
