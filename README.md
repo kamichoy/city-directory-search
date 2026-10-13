@@ -6,11 +6,15 @@ Search the OCR full text of city directories on the Internet Archive across many
 
 The tool is a single static HTML file. There is no build step, no server, and no dependencies. It talks directly to the Internet Archive's public APIs from your browser.
 
-## Why
+## Why I built it
 
-City directories are one of the best sources for tracing a person, a business, or an address over time, but the Internet Archive's viewer only searches one volume at a time. Following one address through 40 years of directories means opening 40 books and running the same search in each. This tool runs the search across every volume you select and puts the hits in one table, grouped by year.
+City directories are one of the best sources for tracing a person, a business, or an address over time. I use them constantly in my research, and for a long time I relied on the Internet Archive’s “Search text contents” option to find what I needed.
 
-It defaults to the [Indianapolis Public Library city directories collection](https://archive.org/details/indianapolispubliclibrarycitydirectories), but works with any Internet Archive items that have OCR text.
+That search tells you which books contain your term, but not where, or in what context. Every result had to be opened and searched again before I could tell whether it held the entry I was looking for, and in a directory with thousands of pages, a word like “Meridian” turns up hundreds of times in a single volume. Following one address through forty years meant forty rounds of opening, searching, and scrolling.
+
+This tool skips that step. It runs the search across every volume you select and lists each individual hit in one table, grouped by year, with the surrounding text and a link straight to the page scan. You can tell at a glance which entry is the one you want before opening anything.
+
+I built it around the [Indianapolis Public Library’s city directory collection](https://archive.org/details/indianapolispubliclibrarycitydirectories), but it works with any city directories on the Internet Archive that have OCR text.
 
 ## Getting started
 
@@ -30,19 +34,27 @@ Then visit `http://localhost:8000`. The file can also be hosted as-is on any sta
 
 On first load the tool fetches the list of volumes in the default collection. Nothing is selected until you choose which years to search.
 
+The panel has two parts. The top part builds the list of volumes:
+
 - **Load / refresh** runs the Internet Archive query in the box and adds the matching volumes to the list. Change the query to load a different collection; any Internet Archive advanced search query works.
 - **Query notes** under the box lists filter syntax and one-click queries for other cities. Many library collections mix directories with other genealogy material, so narrow them by title, e.g. `collection:allen_county AND title:("fort wayne" AND "city directory")`.
-- **Select by year range** selects every volume between two years.
+- **Add to list** adds the Internet Archive identifiers or `archive.org` links typed in the box above it, one per line, for items outside the loaded collection.
+
+The bottom part chooses which of those volumes to search:
+
+- **Select range** selects every volume between two years.
 - **Decade buttons** select a decade. Hold Shift, Ctrl, or Cmd while clicking to add the decade to the current selection instead of replacing it.
+- **Select all** and **Clear selection** check or uncheck every volume.
 - **Year checkboxes** toggle all volumes for a year. Each volume is listed under its year with its own checkbox, and the × button removes it from the list.
-- **Add manually** accepts Internet Archive identifiers or `archive.org` links, one per line, for items outside the loaded collection.
+
+Loading a query adds to the list and the list is saved between visits, so volumes from different cities accumulate. Below the list, **Remove unselected from list** keeps only the checked volumes and **Empty list** clears everything so you can start over with one collection.
 
 ### 2. Enter search terms
 
 Put one term per line: an address, a name, a business. Each term is searched in each selected volume.
 
 - Words in a term must all appear in the same passage.
-- Put words in quotes to require them to appear together, e.g. `"N Meridian" 1234`. Case, punctuation, and line breaks are ignored, so `"N Meridian"` also matches `N. Meridian`.
+- Put words in quotes to require them to appear together, e.g. `"N Meridian" 1234`. Case, punctuation, and line breaks are ignored, so `"N Meridian"` also matches `N. Meridian`. The quotes carry over to the Internet Archive viewer's search box when you open a result.
 - To look up an address, search house number plus street, e.g. `1234 N Meridian`. The street directory section (usually in the back) is arranged by street and house number.
 - OCR often confuses `0`/`O` and `1`/`l`, and multi-column layouts can run lines together. If nothing comes up, try a shorter term or an alternate spelling.
 
