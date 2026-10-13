@@ -149,6 +149,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
       <summary>Search tips</summary>
       <ul>
         <li>Put words in quotes to require them to appear together, e.g. <code>"N Meridian" 1234</code>. Case, punctuation and line breaks are ignored, so <code>"N Meridian"</code> also matches <code>N. Meridian</code>.</li>
+        <li>Quoted terms are also much faster. Without quotes the Internet Archive returns every passage containing any one of the words, and common words like <code>N</code> or <code>Meridian</code> can take a minute per volume or time out.</li>
         <li>The street directory section (usually in the back) is arranged by street and house number. To look up an address, search <code>house number + street</code>, e.g. <code>1234 N Meridian</code>.</li>
         <li>Common Polk abbreviations: <code>av</code> avenue, <code>h</code> householder, <code>r</code> resides, <code>wid</code> widow, <code>(c)</code> "colored," used in older directories to designate Black residents.</li>
         <li>OCR often confuses 0/O and 1/l, and multi-column layouts can run lines together. If nothing comes up, try a shorter term or an alternate spelling.</li>
@@ -214,15 +215,26 @@ function jsonp(url, timeout = 30000){
   });
 }
 async function getJSON(url){
-  const signal = abortCtl ? abortCtl.signal : undefined;   // set only while a search is running
+  const stop = abortCtl ? abortCtl.signal : null;   // set only while a search is running
+  // one request must not hold a search slot for minutes: the search server can sit on a broad query until its gateway gives up
+  const ctl = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, 45000);
+  const onStop = () => ctl.abort();
+  if(stop){ if(stop.aborted) ctl.abort(); else stop.addEventListener('abort', onStop); }
+  let r;
   try{
-    const r = await fetch(url, {signal});
-    if(!r.ok) throw new Error('HTTP ' + r.status);
-    return await r.json();
+    r = await fetch(url, {signal: ctl.signal});
+    if(r.ok) return await r.json();
   }catch(e){
-    if(signal && signal.aborted) throw e;
-    return await jsonp(url);
+    if(timedOut) throw new Error('timed out after 45 s (try a more specific term, or put words in quotes)');
+    if(stop && stop.aborted) throw e;
+    return await jsonp(url);   // network/CORS failure only; a server error would just fail again
+  }finally{
+    clearTimeout(timer);
+    if(stop) stop.removeEventListener('abort', onStop);
   }
+  throw new Error('HTTP ' + r.status + (r.status >= 500 ? ' (Internet Archive is busy, or the term is too broad)' : ''));
 }
 
 /* ---------- items ---------- */
@@ -422,8 +434,9 @@ async function searchLocal(item, meta, term){
   }
   return out;
 }
-/* "quoted phrase" support: the API matches words; phrases are enforced here on the snippet.
-   Normalizing drops punctuation/case/line breaks, so "N Meridian" also matches "N. Meridian". */
+/* The API returns every paragraph containing ANY of the words (it has no AND), but it does honor "quoted
+   phrases". So phrases are sent quoted, which keeps responses small and fast, and "all words must appear"
+   is enforced here. Normalizing drops punctuation/case/line breaks, so "N Meridian" also matches "N. Meridian". */
 // match markers: newer API uses <IA_FTS_MATCH>…</IA_FTS_MATCH>, older uses {{{…}}}
 const MARKS = /\{\{\{|\}\}\}|<\/?IA_FTS_MATCH>/gi;
 const stripMarks = s => String(s).replace(MARKS, '');
@@ -431,7 +444,7 @@ const norm = s => ' ' + stripMarks(s).toLowerCase()
   .replace(/[^\p{L}\p{N}]+/gu, ' ').trim() + ' ';
 /* API snippets are whole OCR "paragraphs" — on directory pages that can be an entire column.
    Cut to a window around the hit (one that satisfies any quoted phrase), keeping the full text for expanding. */
-function trimSnippet(raw, phrases, W = 130){
+function trimSnippet(raw, phrases, words = [], W = 130){
   const s = String(raw).replace(/\{\{\{|<IA_FTS_MATCH>/gi, '\u0001').replace(/\}\}\}|<\/IA_FTS_MATCH>/gi, '\u0002');
   if(s.length <= W * 2.6) return null;
   const starts = [];
@@ -447,22 +460,33 @@ function trimSnippet(raw, phrases, W = 130){
     if((w.match(/\u0001/g) || []).length > (w.match(/\u0002/g) || []).length) w += '\u0002';
     return (a > 0 ? '… ' : '') + w.trim() + (b < s.length ? ' …' : '');
   };
-  let pick = null;
-  for(const st of starts){ const w = cut(st); if(phrases.every(p => norm(w).includes(p))){ pick = w; break; } }
-  pick = pick || cut(starts[0]);
+  // best window: has every phrase and every word; next best: every phrase; else the first hit
+  let pick = null, okPhrases = null;
+  for(const st of starts){
+    const w = cut(st), nw = norm(w);
+    if(!phrases.every(p => nw.includes(p))) continue;
+    okPhrases = okPhrases || w;
+    if(words.every(x => nw.includes(' ' + x + ' '))){ pick = w; break; }
+  }
+  pick = pick || okPhrases || cut(starts[0]);
   return pick.replace(/\u0001/g, '{{{').replace(/\u0002/g, '}}}');
 }
 function parseTerm(raw){
   const phrases = [];
-  const rest = raw.replace(/["“”「」]([^"“”「」]+)["“”「」]/g, (_, p) => { phrases.push(p); return ' ' + p + ' '; });
-  return {query: rest.replace(/["“”「」]/g, ' ').replace(/\s+/g, ' ').trim(), phrases: phrases.map(norm)};
+  const Q = /["“”「」]/g, tidy = s => s.replace(/\s+/g, ' ').trim();
+  const rest = raw.replace(/["“”「」]([^"“”「」]+)["“”「」]/g, (_, p) => { phrases.push(p); return ' \u0001' + p + '\u0002 '; });
+  const bare = rest.replace(Q, ' ');   // stray unmatched quotes
+  return {query: tidy(bare.replace(/[\u0001\u0002]/g, ' ')),          // words only
+          apiQuery: tidy(bare.replace(/[\u0001\u0002]/g, '"')),       // phrases kept in straight quotes
+          phrases: phrases.map(norm)};
 }
 async function searchInside(item, term){
   const meta = await getMeta(item.id);
   if(item.unindexed) return searchLocal(item, meta, term);
-  const {query, phrases} = parseTerm(term);
+  const {query, apiQuery, phrases} = parseTerm(term);
+  const words = [...new Set(wordsOf(query).map(w => w.toLowerCase()))];
   const url = `https://${meta.server}/fulltext/inside.php?item_id=${encodeURIComponent(item.id)}` +
-    `&doc=${encodeURIComponent(meta.doc)}&path=${encodeURIComponent(meta.dir)}&q=${encodeURIComponent(query)}`;
+    `&doc=${encodeURIComponent(meta.doc)}&path=${encodeURIComponent(meta.dir)}&q=${encodeURIComponent(apiQuery)}`;
   const data = await getJSON(url);
   if(data && (data.indexed === false || (data.error && /not yet indexed|not indexed/i.test(data.error)))){
     item.unindexed = true;
@@ -470,11 +494,14 @@ async function searchInside(item, term){
   }
   if(data && data.error) throw new Error(data.error);
   let matches = data?.matches || [];
-  if(phrases.length) matches = matches.filter(mt => { const t = norm(mt.text || ''); return phrases.every(p => t.includes(p)); });
+  if(phrases.length || words.length > 1) matches = matches.filter(mt => {
+    const t = norm(mt.text || '');
+    return phrases.every(p => t.includes(p)) && words.every(w => t.includes(' ' + w + ' '));
+  });
   return matches.map(mt => {
     const par = (mt.par && mt.par[0]) || {};
     const page = par.page ?? (par.boxes && par.boxes[0] && par.boxes[0].page);
-    const short = trimSnippet(mt.text || '', phrases);
+    const short = trimSnippet(mt.text || '', phrases, words);
     return {year:item.year, id:item.id, title:item.title || item.id, volume:item.volume || '', term,
             text: short || mt.text || '', full: short ? mt.text : null, page};
   });
