@@ -135,7 +135,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
         <li>The street directory section (usually in the back) is arranged by street and house number. To look up an address, search <code>house number + street</code>, e.g. <code>1234 N Meridian</code>.</li>
         <li>Common Polk abbreviations: <code>av</code> avenue, <code>h</code> householder, <code>r</code> resides, <code>wid</code> widow, <code>(c)</code> "colored," used in older directories to designate Black residents.</li>
         <li>OCR often confuses 0/O and 1/l, and multi-column layouts can run lines together. If nothing comes up, try a shorter term or an alternate spelling.</li>
-        <li>Page links include <code>?q=</code>, so the viewer highlights your term. If the page is off by one, turn a page.</li>
+        <li>Page links include <code>?q=</code>, so the viewer highlights your term. The two-page view shows the matching page next to its neighbor.</li>
       </ul>
     </details>
   </section>
@@ -452,7 +452,9 @@ async function searchInside(item, term){
 }
 function pageUrl(r){
   const base = `https://archive.org/details/${encodeURIComponent(r.id)}`;
-  const p = (r.page != null) ? `/page/n${r.page}` : '';
+  // the search API reports scan leaf numbers; the viewer's "n" index skips leaves hidden from the book
+  // (color cards etc.), so link by leaf and let the viewer map it. Local OCR-text hits are already indices.
+  const p = (r.page != null) ? `/page/${r.local ? 'n' : 'leaf'}${r.page}` : '';
   // keep quoted phrases quoted in the viewer's search box (curly/CJK quotes become straight ones)
   const q = r.term.replace(/[“”「」]/g, '"').replace(/\s+/g, ' ').trim();
   return `${base}${p}/mode/2up?q=${encodeURIComponent(q)}`;

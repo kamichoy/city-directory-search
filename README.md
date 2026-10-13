@@ -65,7 +65,7 @@ Results appear as they come in, grouped by year.
 - Click a column header (**Year**, **Term**, **Scan**) to sort; click again to reverse.
 - **Filter results** narrows the table by excerpt text, term, or year.
 - Long excerpts are trimmed around the hit. Click one to show the full OCR passage.
-- The **Scan** link opens the page in the Internet Archive viewer with your term highlighted. If the page is off by one, turn a page.
+- The **Scan** link opens the page in the Internet Archive viewer with your term highlighted. The two-page view shows the matching page next to its neighbor.
 - **Export CSV** downloads the currently filtered results with these columns: `year`, `term`, `snippet`, `scan_index`, `link`, `title`, `volume`, `identifier`.
 
 ## How it works
