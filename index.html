@@ -214,11 +214,13 @@ function jsonp(url, timeout = 30000){
   });
 }
 async function getJSON(url){
+  const signal = abortCtl ? abortCtl.signal : undefined;   // set only while a search is running
   try{
-    const r = await fetch(url);
+    const r = await fetch(url, {signal});
     if(!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
   }catch(e){
+    if(signal && signal.aborted) throw e;
     return await jsonp(url);
   }
 }
@@ -375,7 +377,8 @@ function loadText(item, meta){
   if(textCache.has(item.id)) return textCache.get(item.id);
   const p = (async () => {
     if(!meta.txt) throw new Error('Item is not indexed and has no OCR text file');
-    const r = await fetch(`https://archive.org/download/${encodeURIComponent(item.id)}/${encodeURIComponent(meta.txt)}`);
+    const r = await fetch(`https://archive.org/download/${encodeURIComponent(item.id)}/${encodeURIComponent(meta.txt)}`,
+      {signal: abortCtl ? abortCtl.signal : undefined});
     if(!r.ok) throw new Error('OCR text download failed: HTTP ' + r.status);
     const text = await r.text();
     // page breaks are form feeds when present; otherwise page numbers are estimated by position
@@ -486,12 +489,16 @@ function pageUrl(r){
   return `${base}${p}/mode/2up?q=${encodeURIComponent(q)}`;
 }
 
-async function pool(tasks, n, onDone){
+/* Stop must not wait for requests already in flight (a JSONP fallback can hang for 30 s, an OCR text
+   download is tens of MB): it aborts the fetches and releases the pool at once. `alive` turns false
+   for a stopped or superseded run, so stragglers that still finish are ignored. */
+let runId = 0, abortCtl = null, releasePool = null;
+async function pool(tasks, n, alive, onDone){
   let i = 0;
   const workers = Array.from({length:n}, async () => {
-    while(i < tasks.length && !stopFlag){ const t = tasks[i++]; await t(); onDone(); }
+    while(i < tasks.length && alive()){ const t = tasks[i++]; await t(); if(alive()) onDone(); }
   });
-  await Promise.all(workers);
+  await Promise.race([Promise.all(workers), new Promise(r => releasePool = r)]);
 }
 
 $('#btnRun').onclick = async () => {
@@ -504,16 +511,20 @@ $('#btnRun').onclick = async () => {
   $('#btnRun').disabled = true; $('#btnStop').disabled = false;
   const errors = [];
   const tasks = [];
+  const run = ++runId, alive = () => run === runId && !stopFlag;
+  abortCtl = new AbortController();
   sel.forEach(it => terms.forEach(t => tasks.push(async () => {
-    try{ results.push(...await searchInside(it, t)); render(); }
-    catch(e){ errors.push(`${it.year ?? it.id} · ${t}: ${e.message}`); }
+    try{ const hits = await searchInside(it, t); if(!alive()) return; results.push(...hits); render(); }
+    catch(e){ if(alive()) errors.push(`${it.year ?? it.id} · ${t}: ${e.message}`); }
   })));
   let done = 0;
+  $('#prog').style.width = '0';
   status(`Searching… 0 / ${tasks.length}`);
-  await pool(tasks, 3, () => {
+  await pool(tasks, 3, alive, () => {
     done++; $('#prog').style.width = (done / tasks.length * 100) + '%';
     status(`Searching… ${done} / ${tasks.length}, ${results.length} hits so far`);
   });
+  abortCtl = null; releasePool = null;
   $('#btnRun').disabled = false; $('#btnStop').disabled = true;
   let msg = `${stopFlag ? 'Stopped' : 'Done'}: ${sel.length} volumes × ${terms.length} terms, ${results.length} hits.`;
   const loc = sel.filter(i => i.unindexed);
@@ -521,7 +532,11 @@ $('#btnRun').onclick = async () => {
   if(errors.length) msg += `<br><span class="err">${errors.length} failed:</span>` + errors.slice(0,5).map(esc).join('<br>');
   status(msg, errors.length ? '' : 'ok');
 };
-$('#btnStop').onclick = () => { stopFlag = true; };
+$('#btnStop').onclick = () => {
+  stopFlag = true;
+  if(abortCtl) abortCtl.abort();
+  if(releasePool) releasePool();
+};
 
 /* ---------- results ---------- */
 function snippetHTML(t){
