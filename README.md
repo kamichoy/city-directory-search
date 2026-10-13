@@ -106,9 +106,3 @@ Requests use `fetch`, falling back to JSONP if that fails. Searches run three at
 ## Credits
 
 Directory scans and OCR text are served by the [Internet Archive](https://archive.org/details/indianapolispubliclibrarycitydirectories) from the Indianapolis Public Library's city directory collection. This tool is not affiliated with either.
-
----
-
-Disclaimer: This is a personal project, made for convenience only.
-
-Built by Kami Cai · [kami-cai.com](https://kami-cai.com) · Source and corrections on [GitHub](https://github.com/kamichoy/city-directory-search)
