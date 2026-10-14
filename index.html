@@ -154,6 +154,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
         <li>Common Polk abbreviations: <code>av</code> avenue, <code>h</code> householder, <code>r</code> resides, <code>wid</code> widow, <code>(c)</code> "colored," used in older directories to designate Black residents.</li>
         <li>OCR often confuses 0/O and 1/l, and multi-column layouts can run lines together. If nothing comes up, try a shorter term or an alternate spelling.</li>
         <li>Page links include <code>?q=</code>, so the viewer highlights your term. The two-page view shows the matching page next to its neighbor.</li>
+        <li>The number in the Scan column (<code>p332</code>) is the position of the scanned image in the book, not the page number printed in the directory.</li>
       </ul>
     </details>
   </section>
@@ -169,7 +170,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
   <div class="tablewrap">
     <table>
       <thead><tr>
-        <th data-k="year">Year</th><th data-k="term">Term</th><th>OCR excerpt</th><th data-k="page">Scan</th>
+        <th data-k="year">Year</th><th data-k="term">Term</th><th>OCR excerpt</th><th data-k="page" title="Position of the scanned image in the book, not the printed page number">Scan</th>
       </tr></thead>
       <tbody id="tbody"><tr><td colspan="4" class="empty">Results will appear here</td></tr></tbody>
     </table>
@@ -604,7 +605,7 @@ function render(){
       <td>${x.year ?? '?'}${vol}</td>
       <td>${esc(x.term)}</td>
       <td class="snip${x.full ? ' more' : ''}" data-r="${results.indexOf(x)}">${snippetHTML(x._open ? x.full : x.text)}${x.full ? `<span class="tog">${x._open ? 'Collapse' : 'Show full text'}</span>` : ''}</td>
-      <td><a href="${pageUrl(x)}" target="_blank" rel="noopener">${x.approx ? '≈' : ''}n${x.page ?? '?'}</a>${x.local ? `<div class="id" title="${x.approx ? 'Not in the full-text index: result from the OCR text, page number estimated from position' : 'Not in the full-text index: result from the OCR text'}">OCR text</div>` : ''}</td>
+      <td><a href="${pageUrl(x)}" target="_blank" rel="noopener">${x.approx ? '≈' : ''}p${x.page ?? '?'}</a>${x.local ? `<div class="id" title="${x.approx ? 'Not in the full-text index: result from the OCR text, page number estimated from position' : 'Not in the full-text index: result from the OCR text'}">OCR text</div>` : ''}</td>
     </tr>`;
   });
   $('#tbody').innerHTML = html;
