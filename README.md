@@ -2,9 +2,9 @@
 
 Search the OCR full text of city directories on the Internet Archive across many years at once, without downloading the scans. Every result links straight to its page scan.
 
-**Try it: <https://city-directory-search.pages.dev/>**
+**Try it: <https://city-directory-search.kami-cai.com/>**
 
-The tool is a single static HTML file. There is no build step, no server, and no dependencies. It talks directly to the Internet Archive's public APIs from your browser.
+The tool is a static web page: `index.html` plus `collections.js`, the list of collections in the menu. There is no build step, no server, no account, and no dependencies. It talks directly to the Internet Archive's public APIs from your browser.
 
 ## Why I built it
 
@@ -14,11 +14,11 @@ That search tells you which books contain your term, but not where, or in what c
 
 This tool skips that step. It runs the search across every volume you select and lists each individual hit in one table, grouped by year, with the surrounding text and a link straight to the page scan. You can tell at a glance which entry is the one you want before opening anything.
 
-I built it around the [Indianapolis Public Library’s city directory collection](https://archive.org/details/indianapolispubliclibrarycitydirectories), but it works with any city directories on the Internet Archive that have OCR text.
+I built it around the [Indianapolis Public Library’s city directory collection](https://archive.org/details/indianapolispubliclibrarycitydirectories), but it works with any city directories on the Internet Archive that have OCR text. The menu lists nearly thirty collections across fourteen states, Canada, and Scotland, and you can search for any other city by name.
 
 ## Getting started
 
-Use the hosted version at <https://city-directory-search.pages.dev/>, or run it yourself by opening `index.html` in a browser.
+Use the hosted version at <https://city-directory-search.kami-cai.com/>, or run it yourself by opening `index.html` in a browser (keep `collections.js` next to it).
 
 If a request is blocked when the page is opened from `file://`, serve the folder locally instead:
 
@@ -32,22 +32,30 @@ Then visit `http://localhost:8000`. The file can also be hosted as-is on any sta
 
 ### 1. Pick the directories
 
-On first load the tool fetches the list of volumes in the default collection. Nothing is selected until you choose which years to search.
+Nothing is loaded until you choose a source in the **Directory collection** menu:
 
-The panel has two parts. The top part builds the list of volumes:
+- **A collection from the list.** Collections are grouped by state. Some are filtered to leave out other material the library filed with them (plat books, histories, maps); the note under the menu says so and links to the collection on the Internet Archive.
+- **Search by city name…** finds volumes anywhere on the Internet Archive whose title has that name and the word "directory". Results can include other places with the same name, or phone and church directories; remove those with ×.
+- **Custom Internet Archive query…** takes any advanced search query, e.g. `collection:allen_county AND title:("fort wayne" AND "city directory")`. **Query notes** lists the syntax.
 
-- **Load / refresh** runs the Internet Archive query in the box and adds the matching volumes to the list. Change the query to load a different collection; any Internet Archive advanced search query works.
-- **Query notes** under the box lists filter syntax and one-click queries for other cities. Many library collections mix directories with other genealogy material, so narrow them by title, e.g. `collection:allen_county AND title:("fort wayne" AND "city directory")`.
-- **Add to list** adds the Internet Archive identifiers or `archive.org` links typed in the box above it, one per line, for items outside the loaded collection.
+Choosing a source replaces the list of volumes. The choice is remembered in your browser and shown in the address bar, so you can bookmark it or use **Copy link to this collection** to send a colleague a link that opens the same collection:
 
-The bottom part chooses which of those volumes to search:
+| Link | Opens |
+| --- | --- |
+| `?c=fort-wayne` | a collection from the menu, by its `id` in `collections.js` |
+| `?collection=allen_county` | any Internet Archive collection |
+| `?city=Evansville` | a search by city name |
+| `?q=...` | a custom query |
+
+**Add to list** adds individual Internet Archive identifiers or `archive.org` links, one per line, on top of the current list.
+
+Then choose which volumes to search:
 
 - **Select range** selects every volume between two years.
 - **Decade buttons** select a decade. Hold Shift, Ctrl, or Cmd while clicking to add the decade to the current selection instead of replacing it.
 - **Select all** and **Clear selection** check or uncheck every volume.
 - **Year checkboxes** toggle all volumes for a year. Each volume is listed under its year with its own checkbox, and the × button removes it from the list.
-
-Loading a query adds to the list and the list is saved between visits, so volumes from different cities accumulate. Below the list, **Remove unselected from list** keeps only the checked volumes and **Empty list** clears everything so you can start over with one collection.
+- **Remove unselected from list** keeps only the checked volumes, and **Empty list** clears everything.
 
 ### 2. Enter search terms
 
@@ -58,6 +66,7 @@ Put one term per line: an address, a name, a business. Each term is searched in 
 - Quoted terms are also much faster. The Internet Archive's search returns every passage containing any one of the words, so an unquoted term with common words like `N` or `Meridian` can take a minute per volume or time out. A request that gets no answer in 45 seconds is dropped and reported as failed.
 - To look up an address, search house number plus street, e.g. `1234 N Meridian`. The street directory section (usually in the back) is arranged by street and house number.
 - OCR often confuses `0`/`O` and `1`/`l`, and multi-column layouts can run lines together. If nothing comes up, try a shorter term or an alternate spelling.
+- If an address doesn't turn up in a year, search the neighboring house numbers on the same street. Open the page where they appear and look for your address in the scan: it may be there but misread, or the page may be folded or damaged in the scan.
 
 Common Polk directory abbreviations:
 
@@ -78,8 +87,24 @@ Results appear as they come in, grouped by year.
 - Click a column header (**Year**, **Term**, **Scan**) to sort; click again to reverse.
 - **Filter results** narrows the table by excerpt text, term, or year.
 - Long excerpts are trimmed around the hit. Click one to show the full OCR passage.
-- The **Scan** link opens the page in the Internet Archive viewer with your term highlighted. The two-page view shows the matching page next to its neighbor. The number shown (`p332`) is the position of the scanned image in the book, not the page number printed in the directory.
-- **Export CSV** downloads the currently filtered results with these columns: `year`, `term`, `snippet`, `scan_index`, `link`, `title`, `volume`, `identifier`.
+- Each hit has an ID under its year, e.g. `1947-002`. It appears in the CSV and in Copy for AI, so a row in a spreadsheet or an AI summary can be traced back to its source.
+- The **Scan** link opens the page in the Internet Archive viewer with your term highlighted. The two-page view shows the matching page next to its neighbor. `scan 332` is the scan (image) number; below it, `p. 412` is the page number printed in the directory, when the Internet Archive has it.
+- A `≈` before the scan number means the page was estimated (see *Volumes missing from the full-text index* below). The entry may be many pages away.
+- **Cite** copies a citation for the page, e.g. *Polk's Indianapolis City Directory (1945), p. 412, scan 2311. Internet Archive, https://archive.org/details/…/page/leaf2311 (accessed October 23, 2026).* Check the title and publisher against the volume's title page before using it in a nomination.
+- **Export CSV** downloads the currently filtered results with these columns: `hit_id`, `year`, `term`, `snippet`, `context` (about 900 characters around the hit), `full_text` (the whole OCR passage), `scan`, `scan_estimated`, `printed_page`, `source` (search index or OCR text), `link`, `citation`, `title`, `volume`, `identifier`.
+- **Copy for AI** copies the shown results to the clipboard, ready to paste into an AI assistant. See below.
+
+### 4. Sorting results with an AI assistant
+
+Directory hits are messy: OCR errors, abbreviations, and neighboring entries run together. An AI assistant is good at the first pass of sorting them into a table of who was at an address each year. **Copy for AI** copies the filtered results together with instructions that:
+
+- explain how directory entries and common Polk abbreviations read;
+- tell the assistant to use only the excerpts, not to fill gaps from elsewhere, and to show the original text when it corrects an OCR error;
+- ask for a table by year (address, names, occupation, household notes, confidence, hit ID, link), followed by the years with no matching entry and any apparent changes;
+- list the volumes that were searched without a hit, and any searches that failed.
+
+Paste it into the assistant you use; nothing is sent anywhere by the tool. Treat the result as a finding aid, not a source: open the link on every row you plan to use and confirm it against the scan, and cite the directory, not the AI.
+
 
 ## How it works
 
@@ -88,22 +113,31 @@ Results appear as they come in, grouped by year.
 | List the volumes in a collection | `archive.org/advancedsearch.php` |
 | Look up each item's server, path, and file names | `archive.org/metadata/{identifier}` |
 | Search inside a volume | `{server}/fulltext/inside.php` |
-| Fallback: download the OCR text | `archive.org/download/{identifier}/{name}_djvu.txt` |
+| Printed page numbers, for citations | `archive.org/download/{identifier}/{name}_page_numbers.json` |
+| Fallback: download the OCR text | `archive.org/download/{identifier}/{name}_hocr_searchtext.txt.gz` and `_hocr_pageindex.json.gz`, or `_djvu.txt` |
 
 Requests use `fetch`, falling back to JSONP if that fails. Searches run three at a time.
 
-**Volumes missing from the full-text index.** Some items have OCR text but have not been indexed for search-inside. For those, the tool downloads the item's `_djvu.txt` file (usually tens of MB) once per session and searches it in the browser. These results are labelled **OCR text**. If the text file has no page breaks, the page number is estimated from the hit's position in the file and shown with a `≈` prefix. This fallback returns at most 300 hits per volume and term.
+**Volumes missing from the full-text index.** Some items have OCR text but have not been indexed for search-inside. For those, the tool downloads the item's OCR text once per session and searches it in the browser. These results are labelled **OCR text**.
 
-**Saved state.** Your directory list, selections, search terms, and cached item metadata are kept in the browser's `localStorage`, so they persist between visits on the same browser. Nothing is sent anywhere other than the Internet Archive.
+- When the item has `_hocr_searchtext.txt.gz` (the text the Internet Archive's search engine uses, about 10 MB), `_hocr_pageindex.json.gz` (where each page starts and ends in that text), and `_page_numbers.json` (each page's scan leaf and printed page number), every hit is placed on its exact scan.
+- Older items without those files fall back to `_djvu.txt`. That file has no page breaks, so the page is estimated from the hit's position in the file and shown with `≈`. In a volume of a few thousand pages the estimate can be dozens of pages off.
+
+This fallback returns at most 300 hits per volume and term.
+
+**Adding a collection to the menu.** Edit `collections.js`: copy a line in the right state group and change its `id`, `label`, `q` (the Internet Archive query), and optional `note`. The `id` appears in shared links, so don't change it once published. Suggestions are welcome as [GitHub issues](https://github.com/kamichoy/city-directory-search/issues/new).
+
+**Saved state and privacy.** Your chosen collection, directory list, selections, search terms, and cached item metadata are kept in the browser's `localStorage`, so they persist between visits on the same browser. There are no accounts and no analytics; nothing is sent anywhere other than the Internet Archive. To move a setup to another device, use **Copy link to this collection**.
 
 ## Limitations
 
 - OCR text contains errors. Treat every result as a lead and verify it against the page scan.
-- A missing result does not mean the person or address is absent from the directory; the OCR may have misread it.
+- A missing result does not mean the person or address is absent from the directory. The OCR may have misread it, and pages that were folded, damaged, or tightly bound in the scan may have no text at all. The tool can't detect or fix these; check the neighboring entries and the scan itself.
+- Page links marked `≈` are estimates and can be dozens of pages off.
 - Collection loading is capped at 1,000 volumes per query.
 - Years are inferred from each item's metadata, title, or identifier, and may occasionally be wrong or missing (shown as **Undated**).
 - Availability and speed depend on the Internet Archive's services.
 
 ## Credits
 
-Directory scans and OCR text are served by the [Internet Archive](https://archive.org/details/indianapolispubliclibrarycitydirectories) from the Indianapolis Public Library's city directory collection. This tool is not affiliated with either.
+Directory scans and OCR text are served by the [Internet Archive](https://archive.org) and belong to the libraries and archives that contributed them, including the Indianapolis Public Library, whose [city directory collection](https://archive.org/details/indianapolispubliclibrarycitydirectories) the tool was built around. This tool is not affiliated with the Internet Archive or any contributing library.

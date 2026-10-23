@@ -40,7 +40,13 @@ main>div>section:last-child{flex:1;display:flex;flex-direction:column}
 .yhead{display:flex;gap:8px;align-items:center;padding:6px 8px;background:var(--bg);font-weight:600;font-size:13px;position:sticky;top:0}
 .yhead .n{color:var(--muted);font-weight:400;font-size:11px}
 .ygroup .item{padding-left:30px;border-bottom:0}
-#decades button,#presets button,#prune button{padding:3px 8px;font-size:12px}
+#decades button,#prune button,#srcTools button,.cite{padding:3px 8px;font-size:12px}
+select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
+.note{color:var(--muted);font-size:12px;margin-top:6px}
+.note:empty{display:none}
+[hidden]{display:none !important}
+.cite{margin-top:4px;padding:1px 6px;font-size:11px;color:var(--muted)}
+.approx{color:var(--err)}
 tr.yrow td{background:var(--bg);font-weight:600;font-size:13px;padding:6px 8px}
 tr.yrow td span{color:var(--muted);font-weight:400;font-size:11px;margin-left:6px}
 .item{display:flex;gap:8px;align-items:flex-start;padding:5px 8px;border-bottom:1px solid var(--line);font-size:13px}
@@ -79,12 +85,33 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
 <div>
   <section>
     <h2>1 · Directories</h2>
-    <label>Internet Archive query (default: Indianapolis Public Library city directories collection)</label>
-    <textarea id="iaQuery" style="min-height:74px">collection:indianapolispubliclibrarycitydirectories</textarea>
-    <div class="row">
-      <button id="btnFind">Load / refresh</button>
+    <label for="source" style="margin-top:0">Directory collection</label>
+    <select id="source"></select>
+    <div id="srcNote" class="note"></div>
+
+    <div id="citySrc" hidden>
+      <label for="cityName">City or town name</label>
+      <div class="row" style="margin-top:0;flex-wrap:nowrap">
+        <input type="text" id="cityName" placeholder="Evansville">
+        <button id="btnCity">Find</button>
+      </div>
+      <div class="note">Finds volumes anywhere on the Internet Archive whose title has this name and the word "directory". Results can include other places with the same name, or phone and church directories; remove those with ×.</div>
     </div>
-    <details>
+
+    <div id="customSrc" hidden>
+      <label for="iaQuery">Internet Archive query</label>
+      <textarea id="iaQuery" style="min-height:74px" placeholder='collection:allen_county AND title:("fort wayne" AND "city directory")'></textarea>
+      <div class="row">
+        <button id="btnFind">Load</button>
+      </div>
+    </div>
+
+    <div class="row" id="srcTools" hidden>
+      <button id="btnReload">Reload list</button>
+      <button id="btnLink">Copy link to this collection</button>
+    </div>
+
+    <details id="queryNotes">
       <summary>Query notes: filtering and other collections</summary>
       <ul>
         <li>A collection's ID is the last part of its address: <code>archive.org/details/allen_county</code> is <code>collection:allen_county</code>.</li>
@@ -92,21 +119,10 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
         <li>Add the city to keep one place only: <code>title:("fort wayne" AND "city directory")</code>. Combine conditions with <code>AND</code>, <code>OR</code>, <code>NOT</code> and parentheses.</li>
         <li>Limit by year with <code>AND year:[1900 TO 1920]</code>. Volumes with no year in their catalog record are left out by this filter.</li>
         <li>Filter by title, not subject. Subjects are inconsistent, and many directories are tagged only <code>genealogy</code>.</li>
-        <li>A query loads at most 1,000 volumes, so filter large collections first. Loading adds to the list below; it does not replace it. Remove volumes with × to keep cities apart.</li>
+        <li>A query loads at most 1,000 volumes, so filter large collections first.</li>
+        <li>Choosing a collection, finding a city, or loading a query replaces the list below. To combine sources, use <b>Add to list</b> for individual volumes.</li>
+        <li>Know a collection that should be in the menu? <a href="https://github.com/kamichoy/city-directory-search/issues/new?title=Collection%20suggestion" target="_blank" rel="noopener">Suggest it on GitHub</a>.</li>
       </ul>
-      <div style="color:var(--muted);font-size:12px;margin-top:8px">Common collections (click to fill the query box, then Load):</div>
-      <div class="row" id="presets" style="margin-top:6px">
-        <button data-q='collection:indianapolispubliclibrarycitydirectories'>Indianapolis, IN</button>
-        <button data-q='collection:allen_county AND title:("fort wayne" AND "city directory")'>Fort Wayne, IN</button>
-        <button data-q='collection:akron-summit-directories'>Akron, OH</button>
-        <button data-q='collection:brooklyncitydirectoriesonmicrofiche'>Brooklyn, NY</button>
-        <button data-q='collection:desmoinesandpolkcountycitydirectories'>Des Moines, IA</button>
-        <button data-q='collection:newbedfordfreenewbedfordcitydirectories'>New Bedford, MA</button>
-        <button data-q='collection:newarkcitydirectories'>Newark, NJ</button>
-        <button data-q='collection:cshcitydirectories'>Sacramento, CA</button>
-        <button data-q='collection:saginaw-city-directories'>Saginaw, MI</button>
-        <button data-q='collection:ncdir'>North Carolina (statewide)</button>
-      </div>
     </details>
     <label>Add manually (identifiers or archive.org links, one per line)</label>
     <textarea id="manual" style="min-height:52px" placeholder="polksindianapoli1967unse"></textarea>
@@ -154,7 +170,10 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
         <li>Common Polk abbreviations: <code>av</code> avenue, <code>h</code> householder, <code>r</code> resides, <code>wid</code> widow, <code>(c)</code> "colored," used in older directories to designate Black residents.</li>
         <li>OCR often confuses 0/O and 1/l, and multi-column layouts can run lines together. If nothing comes up, try a shorter term or an alternate spelling.</li>
         <li>Page links include <code>?q=</code>, so the viewer highlights your term. The two-page view shows the matching page next to its neighbor.</li>
-        <li>The number in the Scan column (<code>p332</code>) is the position of the scanned image in the book, not the page number printed in the directory.</li>
+        <li>The Scan column shows the scan (image) number, e.g. <code>scan 332</code>, and below it the page number printed in the directory when the Internet Archive has it, e.g. <code>p. 412</code>. <b>Cite</b> copies a citation for that page.</li>
+        <li>A <span class="approx">≈</span> before the scan number means the page was estimated from the hit's position in the OCR text, because the volume is not in the Internet Archive's search index. The entry may be many pages away; turn pages to find it.</li>
+        <li>If an address doesn't turn up in a year, search the neighboring house numbers on the same street. Open the page where they appear and look for your address in the scan: it may be there but misread, or the page may be folded or damaged in the scan.</li>
+        <li><b>Copy for AI</b> copies the shown results with instructions for an AI assistant to sort them into a table by year, keeping each hit ID and page link so you can check every row against the scan.</li>
       </ul>
     </details>
   </section>
@@ -165,12 +184,13 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
   <div class="tools">
     <input type="text" id="filter" placeholder="Filter results…">
     <button id="btnCsv" disabled>Export CSV</button>
+    <button id="btnAI" disabled title="Copy the results with instructions, to paste into an AI assistant">Copy for AI</button>
     <span id="rcount" style="color:var(--muted);font-size:12px"></span>
   </div>
   <div class="tablewrap">
     <table>
       <thead><tr>
-        <th data-k="year">Year</th><th data-k="term">Term</th><th>OCR excerpt</th><th data-k="page" title="Position of the scanned image in the book, not the printed page number">Scan</th>
+        <th data-k="year">Year</th><th data-k="term">Term</th><th>OCR excerpt</th><th data-k="page" title="Scan (leaf) number of the page image; the printed page number is shown below it when known">Scan</th>
       </tr></thead>
       <tbody id="tbody"><tr><td colspan="4" class="empty">Results will appear here</td></tr></tbody>
     </table>
@@ -179,15 +199,16 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
 </div>
 </main>
 <footer style="padding:0 20px 24px;color:var(--muted);font-size:12px">
-  Directory scans and OCR text are served by the <a href="https://archive.org/details/indianapolispubliclibrarycitydirectories" target="_blank" rel="noopener">Internet Archive</a> from the Indianapolis Public Library's city directory collection. This tool is not affiliated with either. OCR text contains errors, so verify every result against the page scan.
+  Directory scans and OCR text are served by the <a href="https://archive.org" target="_blank" rel="noopener">Internet Archive</a> and belong to the libraries and archives that contributed them. This tool is not affiliated with the Internet Archive or any contributing library. OCR text contains errors, and pages that were folded, damaged, or tightly bound in the scan may have no text at all, so verify every result against the page scan and treat a missing result as unconfirmed, not absent.
+  <p style="margin:8px 0 0">Privacy: this tool collects nothing. Your collections, selections, and search terms are saved only in your own browser, and searches go straight from your browser to the Internet Archive.</p>
   <p style="margin:8px 0 0">Disclaimer: This is a personal project, made for convenience only.</p>
-  <p style="margin:2px 0 0">Built by Kami Cai · <a href="https://kami-cai.com" target="_blank" rel="noopener">kami-cai.com</a> · Source and corrections on <a href="https://github.com/kamichoy/city-directory-search" target="_blank" rel="noopener">GitHub</a></p>
+  <p style="margin:2px 0 0">Built by Kami Cai · <a href="https://kami-cai.com" target="_blank" rel="noopener">kami-cai.com</a> · Source on <a href="https://github.com/kamichoy/city-directory-search" target="_blank" rel="noopener">GitHub</a> · <a href="https://github.com/kamichoy/city-directory-search/issues/new" target="_blank" rel="noopener">Report a problem or suggest a collection</a></p>
 </footer>
 
+<script src="collections.js"></script>
 <script>
 (() => {
 const $ = s => document.querySelector(s);
-const COLLECTION_Q = 'collection:indianapolispubliclibrarycitydirectories';
 const LS_ITEMS = 'cds_items_v2', LS_META = 'cds_meta_v1', LS_TERMS = 'cds_terms_v1';
 const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
@@ -321,6 +342,8 @@ $('#btnDropAll').onclick = () => {
 };
 
 const first = v => Array.isArray(v) ? v[0] : v;
+/* Loading a source replaces the list: each collection or city is its own list, so cities don't mix.
+   (Individual volumes can still be added on top with "Add to list".) */
 async function loadQuery(q){
   status('Loading directory list…');
   try{
@@ -328,24 +351,129 @@ async function loadQuery(q){
       '&fl[]=identifier&fl[]=title&fl[]=year&fl[]=date&fl[]=volume&rows=1000&sort[]=year+asc&output=json';
     const data = await getJSON(url);
     const docs = data?.response?.docs || [];
-    let n = 0;
-    docs.forEach(d => {
-      const o = {id:d.identifier, title:first(d.title) || '', volume:first(d.volume) || '',
-                 year:yearOf({year:first(d.year), date:first(d.date), title:first(d.title), identifier:d.identifier}), on:false};
-      const ex = items.find(i => i.id === o.id);
-      if(ex){ ex.title = o.title || ex.title; ex.volume = o.volume || ex.volume; ex.year = o.year ?? ex.year; }
-      else { items.push(o); n++; }
-    });
+    const found = data?.response?.numFound ?? docs.length;
+    items = docs.map(d => ({id:d.identifier, title:first(d.title) || '', volume:first(d.volume) || '',
+      year:yearOf({year:first(d.year), date:first(d.date), title:first(d.title), identifier:d.identifier}), on:false}));
     saveItems();
     const yrs = new Set(items.map(i => i.year).filter(Boolean));
-    status(`Loaded ${docs.length} volumes (${n} new) covering ${yrs.size} years. Check the years you want to search.`, 'ok');
+    if(!docs.length) status('No volumes found. Check the spelling, or try a shorter name.', 'err');
+    else status(`Loaded ${docs.length} volumes covering ${yrs.size} years` +
+      (found > docs.length ? ` (the first ${docs.length} of ${found}; narrow the query to see the rest)` : '') +
+      '. Check the years you want to search.', 'ok');
   }catch(e){ status('Load failed: ' + esc(e.message), 'err'); }
 }
-$('#btnFind').onclick = () => { const q = $('#iaQuery').value.replace(/\s+/g, ' ').trim(); if(q) loadQuery(q); };
-$('#presets').addEventListener('click', e => {
-  const q = e.target.dataset.q; if(q == null) return;
-  $('#iaQuery').value = q; $('#iaQuery').focus();
+
+/* ---------- collection menu ----------
+   A source is {type:'preset', id} | {type:'city', city} | {type:'custom', q}. It is remembered in this
+   browser and mirrored in the address bar (?c= / ?city= / ?q=), so a link opens the same collection. */
+const LS_SOURCE = 'cds_source_v1';
+const GROUPS = Array.isArray(window.CDS_COLLECTIONS) && window.CDS_COLLECTIONS.length ? window.CDS_COLLECTIONS
+  : [{group:'Indiana', items:[{id:'indianapolis', label:'Indianapolis', q:'collection:indianapolispubliclibrarycitydirectories'}]}];
+const PRESETS = GROUPS.flatMap(g => g.items.map(p => ({...p, group:g.group})));
+const presetById = id => PRESETS.find(p => p.id === id);
+let source = null;
+
+(function buildMenu(){
+  const sel = $('#source');
+  sel.innerHTML = '<option value="" disabled>Choose a collection…</option>' +
+    GROUPS.map(g => `<optgroup label="${esc(g.group)}">` +
+      g.items.map(p => `<option value="p:${esc(p.id)}">${esc(p.label)}${g.group === 'Canada' || g.group === 'Scotland' ? '' : ', ' + esc(stateAbbr(g.group))}</option>`).join('') +
+      '</optgroup>').join('') +
+    '<optgroup label="Other"><option value="city">Search by city name…</option><option value="custom">Custom Internet Archive query…</option></optgroup>';
+})();
+function stateAbbr(s){
+  const m = {Alabama:'AL',Alaska:'AK',Arizona:'AZ',Arkansas:'AR',California:'CA',Colorado:'CO',Connecticut:'CT',Delaware:'DE',Florida:'FL',Georgia:'GA',
+    Hawaii:'HI',Idaho:'ID',Illinois:'IL',Indiana:'IN',Iowa:'IA',Kansas:'KS',Kentucky:'KY',Louisiana:'LA',Maine:'ME',Maryland:'MD',Massachusetts:'MA',
+    Michigan:'MI',Minnesota:'MN',Mississippi:'MS',Missouri:'MO',Montana:'MT',Nebraska:'NE',Nevada:'NV','New Hampshire':'NH','New Jersey':'NJ',
+    'New Mexico':'NM','New York':'NY','North Carolina':'NC','North Dakota':'ND',Ohio:'OH',Oklahoma:'OK',Oregon:'OR',Pennsylvania:'PA',
+    'Rhode Island':'RI','South Carolina':'SC','South Dakota':'SD',Tennessee:'TN',Texas:'TX',Utah:'UT',Vermont:'VT',Virginia:'VA',Washington:'WA',
+    'West Virginia':'WV',Wisconsin:'WI',Wyoming:'WY','District of Columbia':'DC'};
+  return m[s] || s;
+}
+// words of a city name, each required in the title, plus "directory"/"directories"
+function cityQuery(city){
+  const name = city.replace(/["“”()]/g, ' ').replace(/\s+/g, ' ').trim();
+  return `mediatype:texts AND title:("${name}") AND title:(directory OR directories)`;
+}
+function sourceQuery(s){
+  if(!s) return '';
+  if(s.type === 'preset'){ const p = presetById(s.id); return p ? p.q : ''; }
+  if(s.type === 'city') return cityQuery(s.city);
+  return s.q || '';
+}
+function sourceParams(s){
+  if(!s) return '';
+  if(s.type === 'preset') return '?c=' + encodeURIComponent(s.id);
+  if(s.type === 'city') return '?city=' + encodeURIComponent(s.city);
+  return '?q=' + encodeURIComponent(s.q);
+}
+function showSource(s){
+  const sel = $('#source');
+  sel.value = !s ? '' : s.type === 'preset' ? 'p:' + s.id : s.type;
+  if(sel.selectedIndex < 0) sel.value = '';
+  $('#citySrc').hidden = !s || s.type !== 'city';
+  $('#customSrc').hidden = !s || s.type !== 'custom';
+  $('#srcTools').hidden = !s || (s.type === 'city' && !s.city) || (s.type === 'custom' && !s.q);
+  const p = s && s.type === 'preset' ? presetById(s.id) : null;
+  $('#srcNote').innerHTML = p ? esc(p.note || '') + (p.note ? ' ' : '') +
+    `<a href="https://archive.org/search?query=${encodeURIComponent(p.q)}" target="_blank" rel="noopener">View on Internet Archive</a>` : '';
+  if(s && s.type === 'city') $('#cityName').value = s.city || '';
+  if(s && s.type === 'custom') $('#iaQuery').value = s.q || '';
+}
+function setSource(s, load = true){
+  source = s;
+  store.set(LS_SOURCE, s);
+  try{ history.replaceState(null, '', location.pathname + sourceParams(s) + location.hash); }catch(e){}
+  showSource(s);
+  const q = sourceQuery(s);
+  if(load && q) loadQuery(q);
+}
+$('#source').addEventListener('change', e => {
+  const v = e.target.value;
+  if(v.startsWith('p:')) setSource({type:'preset', id:v.slice(2)});
+  else if(v === 'city'){ showSource({type:'city', city:''}); $('#cityName').focus(); }
+  else if(v === 'custom'){ showSource({type:'custom', q:''}); $('#iaQuery').focus(); }
 });
+$('#btnCity').onclick = () => {
+  const city = $('#cityName').value.trim();
+  if(!city){ $('#cityName').focus(); return; }
+  setSource({type:'city', city});
+};
+$('#cityName').addEventListener('keydown', e => { if(e.key === 'Enter') $('#btnCity').click(); });
+$('#btnFind').onclick = () => {
+  const q = $('#iaQuery').value.replace(/\s+/g, ' ').trim();
+  if(q) setSource({type:'custom', q});
+};
+$('#btnReload').onclick = () => { const q = sourceQuery(source); if(q) loadQuery(q); };
+$('#btnLink').onclick = async () => {
+  const url = location.origin + location.pathname + sourceParams(source);
+  const ok = await copyText(url);
+  status(ok ? 'Link copied. Anyone who opens it gets this collection.' : 'Copy this link: ' + esc(url), ok ? 'ok' : '');
+};
+async function copyText(t){
+  try{ await navigator.clipboard.writeText(t); return true; }
+  catch(e){
+    try{
+      const ta = document.createElement('textarea');
+      ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand('copy'); ta.remove(); return ok;
+    }catch(e2){ return false; }
+  }
+}
+// ?c=<menu id> | ?collection=<IA collection id> | ?city=<name> | ?q=<query>
+function sourceFromURL(){
+  const u = new URLSearchParams(location.search);
+  if(u.get('c') && presetById(u.get('c'))) return {type:'preset', id:u.get('c')};
+  if(u.get('collection')){
+    const q = 'collection:' + u.get('collection').trim();
+    const p = PRESETS.find(p => p.q === q);
+    return p ? {type:'preset', id:p.id} : {type:'custom', q};
+  }
+  if(u.get('city')) return {type:'city', city:u.get('city').trim()};
+  if(u.get('q')) return {type:'custom', q:u.get('q').trim()};
+  return null;
+}
 
 $('#btnAdd').onclick = async () => {
   const lines = $('#manual').value.split(/\s+/).map(s => s.trim()).filter(Boolean);
@@ -368,7 +496,7 @@ $('#btnAdd').onclick = async () => {
 
 /* ---------- search inside ---------- */
 async function getMeta(id){
-  if(metaCache[id] && metaCache[id].v === 2) return metaCache[id];
+  if(metaCache[id] && metaCache[id].v === 3) return metaCache[id];
   const m = await getJSON('https://archive.org/metadata/' + encodeURIComponent(id));
   if(!m || !m.server) throw new Error('Item metadata not found');
   const files = (m.files || []).map(f => f.name);
@@ -376,28 +504,93 @@ async function getMeta(id){
   const f = files.find(n => /_djvu\.xml$/.test(n)) || files.find(n => /_jp2\.(zip|tar)$/.test(n)) ||
             files.find(n => /_scandata\.xml$/.test(n));
   const doc = f ? f.replace(/_(djvu\.xml|jp2\.zip|jp2\.tar|scandata\.xml)$/, '') : id;
-  const txt = files.find(n => n === doc + '_djvu.txt') || files.find(n => /_djvu\.txt$/.test(n)) || null;
+  const pick = suffix => files.find(n => n === doc + suffix) || files.find(n => n.endsWith(suffix)) || null;
+  const txt = pick('_djvu.txt');
+  // page-aware OCR text: search text, the character range of each page in it, and each page's scan leaf
+  const st = pick('_hocr_searchtext.txt.gz'), pi = pick('_hocr_pageindex.json.gz'), pn = pick('_page_numbers.json');
   const pages = parseInt(first(m.metadata && m.metadata.imagecount)) || null;
-  const meta = {v:2, server: m.server, dir: m.dir, doc, txt, pages};
+  const meta = {v:3, server: m.server, dir: m.dir, doc, txt, st, pi, pn, pages};
   metaCache[id] = meta; store.set(LS_META, metaCache);
   return meta;
 }
 
 /* ---------- fallback for items missing from the full-text index ----------
-   Downloads the item's OCR text (_djvu.txt, usually tens of MB) once per session and searches it here. */
-const textCache = new Map();   // id -> Promise<{text, pages: [startOffsets] | null}>
+   Downloads the item's OCR text once per session and searches it here.
+   Preferred: _hocr_searchtext.txt.gz (the text the IA search engine uses) with _hocr_pageindex.json.gz
+   (where each page starts and ends in that text) and _page_numbers.json (each page's scan leaf and printed
+   page number). Together they place every hit on its exact scan. Older items lack them; then the plain
+   _djvu.txt is used and the page is estimated from the hit's position, shown with ≈. */
+const textCache = new Map();   // id -> Promise<{text, starts, ends, leafs, printed, exact}>
+const dlURL = (id, name) => `https://archive.org/download/${encodeURIComponent(id)}/${encodeURIComponent(name)}`;
+async function fetchText(url){
+  const r = await fetch(url, {signal: abortCtl ? abortCtl.signal : undefined});
+  if(!r.ok) throw new Error('download failed: HTTP ' + r.status);
+  const buf = new Uint8Array(await r.arrayBuffer());
+  if(buf[0] === 0x1f && buf[1] === 0x8b){   // gzip, not already decoded by the browser
+    if(typeof DecompressionStream === 'undefined') throw new Error('this browser cannot unpack .gz files');
+    return await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  }
+  return new TextDecoder().decode(buf);
+}
+/* The page index is a list with one entry per page, each starting [start, end, …]. Offsets may count
+   characters or UTF-8 bytes; whichever matches the text's length is used, and bytes are converted.
+   Anything that doesn't check out returns null, and the caller falls back to estimating. */
+function readPageIndex(raw, text){
+  let pi; try{ pi = JSON.parse(raw); }catch(e){ return null; }
+  if(!Array.isArray(pi) || !pi.length) return null;
+  const pairs = pi.map(e => Array.isArray(e) ? [e[0], e[1]] : (e && typeof e === 'object') ? [e.start ?? e[0], e.end ?? e[1]] : null);
+  if(pairs.some(p => !p || !Number.isFinite(p[0]) || !Number.isFinite(p[1]) || p[1] < p[0])) return null;
+  for(let i = 1; i < pairs.length; i++) if(pairs[i][0] < pairs[i - 1][0]) return null;
+  const last = pairs[pairs.length - 1][1];
+  const bytes = new TextEncoder().encode(text).length;
+  const near = n => Math.abs(last - n) <= Math.max(4, n * 0.001);
+  if(near(text.length) || last <= text.length && bytes === text.length) return {starts:pairs.map(p => p[0]), ends:pairs.map(p => p[1])};
+  if(!near(bytes)) return null;
+  // byte offsets -> character offsets in one pass
+  const want = [...new Set(pairs.flat())].sort((a, b) => a - b), map = new Map();
+  let b = 0, w = 0;
+  for(let c = 0; c <= text.length && w < want.length; c++){
+    while(w < want.length && want[w] <= b){ map.set(want[w], c); w++; }
+    if(c === text.length) break;
+    const cp = text.codePointAt(c);
+    b += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+    if(cp >= 0x10000) c++;
+  }
+  while(w < want.length) map.set(want[w++], text.length);
+  return {starts:pairs.map(p => map.get(p[0])), ends:pairs.map(p => map.get(p[1]))};
+}
+// scan leaf and printed page number for each OCR page, from _page_numbers.json
+const pageNumCache = new Map();
+function loadPageNumbers(item, meta){
+  if(!meta.pn) return Promise.resolve(null);
+  if(pageNumCache.has(item.id)) return pageNumCache.get(item.id);
+  const p = fetchText(dlURL(item.id, meta.pn)).then(t => {
+    const pages = (JSON.parse(t).pages || []);
+    return {leafs: pages.map(x => x.leafNum), printed: pages.map(x => String(x.pageNumber ?? '').trim())};
+  }).catch(() => null);
+  pageNumCache.set(item.id, p);
+  return p;
+}
 function loadText(item, meta){
   if(textCache.has(item.id)) return textCache.get(item.id);
   const p = (async () => {
+    if(meta.st && meta.pi){
+      try{
+        const [text, rawIdx, pn] = await Promise.all([fetchText(dlURL(item.id, meta.st)), fetchText(dlURL(item.id, meta.pi)), loadPageNumbers(item, meta)]);
+        const idx = readPageIndex(rawIdx, text);
+        if(idx){
+          const leafs = pn && pn.leafs.length === idx.starts.length ? pn.leafs : null;
+          return {text, starts:idx.starts, ends:idx.ends, leafs, printed: leafs ? pn.printed : null, exact: !!leafs};
+        }
+        console.warn('[cds] page index for', item.id, 'did not match its text; estimating pages');
+      }catch(e){ if(abortCtl && abortCtl.signal.aborted) throw e; console.warn('[cds] page-aware text failed for', item.id, e); }
+    }
     if(!meta.txt) throw new Error('Item is not indexed and has no OCR text file');
-    const r = await fetch(`https://archive.org/download/${encodeURIComponent(item.id)}/${encodeURIComponent(meta.txt)}`,
-      {signal: abortCtl ? abortCtl.signal : undefined});
-    if(!r.ok) throw new Error('OCR text download failed: HTTP ' + r.status);
-    const text = await r.text();
+    const text = await fetchText(dlURL(item.id, meta.txt));
     // page breaks are form feeds when present; otherwise page numbers are estimated by position
     let starts = null;
     if(text.includes('\f')){ starts = [0]; for(let i = 0; i < text.length; i++) if(text[i] === '\f') starts.push(i + 1); }
-    return {text, starts};
+    return {text, starts, ends:null, leafs:null, printed:null, exact:false};
   })();
   p.catch(() => textCache.delete(item.id));
   textCache.set(item.id, p);
@@ -406,7 +599,7 @@ function loadText(item, meta){
 const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const wordsOf = s => s.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 async function searchLocal(item, meta, term){
-  const {text, starts} = await loadText(item, meta);
+  const {text, starts, ends, leafs, printed, exact} = await loadText(item, meta);
   const {query, phrases} = parseTerm(term);
   const words = wordsOf(query);
   if(!words.length) return [];
@@ -417,11 +610,13 @@ async function searchLocal(item, meta, term){
   const out = [], W = 120;
   let m;
   while((m = anchor.exec(text)) && out.length < 300){
-    let page, approx = false, pa = 0, pb = text.length;
+    let page, approx = false, pa = 0, pb = text.length, linkBy = 'n', pr = '';
     if(starts){
       let lo = 0, hi = starts.length - 1;
       while(lo < hi){ const mid = (lo + hi + 1) >> 1; if(starts[mid] <= m.index) lo = mid; else hi = mid - 1; }
-      page = lo; pa = starts[lo]; pb = lo + 1 < starts.length ? starts[lo + 1] - 1 : text.length;
+      pa = starts[lo]; pb = ends ? Math.max(ends[lo], m.index + m[0].length) : (lo + 1 < starts.length ? starts[lo + 1] - 1 : text.length);
+      if(leafs){ page = leafs[lo]; linkBy = 'leaf'; pr = printed ? printed[lo] : ''; }
+      else { page = lo; approx = !!ends && !exact; }   // OCR page order can differ from the viewer's numbering
     } else if(meta.pages){ page = Math.round(m.index / text.length * (meta.pages - 1)); approx = true; }
     // snippet window stays inside the page
     const a = Math.max(pa, m.index - W), b = Math.min(pb, m.index + m[0].length + W);
@@ -431,7 +626,11 @@ async function searchLocal(item, meta, term){
     if(!words.every(w => nw.includes(' ' + w.toLowerCase() + ' '))) continue;
     if(out.length && out[out.length - 1]._b > m.index && !phrases.length) continue;   // same hit already covered
     const snippet = (a > 0 ? '…' : '') + win.replace(/\f/g, ' ').replace(hl, '{{{$1}}}') + (b < text.length ? '…' : '');
-    out.push({year:item.year, id:item.id, title:item.title || item.id, volume:item.volume || '', term, text:snippet, page, approx, local:true, _b:b});
+    // wider context (still within the page) for CSV and AI export
+    const ca = Math.max(pa, m.index - 450), cb = Math.min(pb, m.index + m[0].length + 450);
+    const ctx = (ca > pa ? '… ' : '') + text.slice(ca, cb).replace(/\f/g, ' ').replace(/\s+/g, ' ').trim() + (cb < pb ? ' …' : '');
+    out.push({year:item.year, id:item.id, title:item.title || item.id, volume:item.volume || '', term, text:snippet, ctx,
+              page, linkBy, printed:pr, approx, local:true, _b:b});
   }
   return out;
 }
@@ -499,19 +698,31 @@ async function searchInside(item, term){
     const t = norm(mt.text || '');
     return phrases.every(p => t.includes(p)) && words.every(w => t.includes(' ' + w + ' '));
   });
-  return matches.map(mt => {
+  const hits = matches.map(mt => {
     const par = (mt.par && mt.par[0]) || {};
     const page = par.page ?? (par.boxes && par.boxes[0] && par.boxes[0].page);
     const short = trimSnippet(mt.text || '', phrases, words);
+    const wide = trimSnippet(mt.text || '', phrases, words, 450);
     return {year:item.year, id:item.id, title:item.title || item.id, volume:item.volume || '', term,
-            text: short || mt.text || '', full: short ? mt.text : null, page};
+            text: short || mt.text || '', full: short ? mt.text : null, page, linkBy:'leaf', printed:'',
+            ctx: stripMarks(wide || mt.text || '').replace(/\s+/g, ' ').trim()};
   });
+  // printed page numbers, when the item has them (used in citations); a failure just leaves them blank
+  if(hits.length){
+    const pn = await loadPageNumbers(item, meta);
+    if(pn){
+      const byLeaf = new Map(pn.leafs.map((l, i) => [l, pn.printed[i]]));
+      hits.forEach(h => { h.printed = byLeaf.get(h.page) || ''; });
+    }
+  }
+  return hits;
 }
 function pageUrl(r){
   const base = `https://archive.org/details/${encodeURIComponent(r.id)}`;
-  // the search API reports scan leaf numbers; the viewer's "n" index skips leaves hidden from the book
-  // (color cards etc.), so link by leaf and let the viewer map it. Local OCR-text hits are already indices.
-  const p = (r.page != null) ? `/page/${r.local ? 'n' : 'leaf'}${r.page}` : '';
+  // the search API and _page_numbers.json report scan leaf numbers; the viewer's "n" index skips leaves
+  // hidden from the book (color cards etc.), so link by leaf and let the viewer map it.
+  // Hits placed only by position in the OCR text use the "n" index.
+  const p = (r.page != null) ? `/page/${(r.linkBy || (r.local ? 'n' : 'leaf'))}${r.page}` : '';
   // keep quoted phrases quoted in the viewer's search box (curly/CJK quotes become straight ones)
   const q = r.term.replace(/[“”「」]/g, '"').replace(/\s+/g, ' ').trim();
   return `${base}${p}/mode/2up?q=${encodeURIComponent(q)}`;
@@ -520,7 +731,7 @@ function pageUrl(r){
 /* Stop must not wait for requests already in flight (a JSONP fallback can hang for 30 s, an OCR text
    download is tens of MB): it aborts the fetches and releases the pool at once. `alive` turns false
    for a stopped or superseded run, so stragglers that still finish are ignored. */
-let runId = 0, abortCtl = null, releasePool = null;
+let runId = 0, abortCtl = null, releasePool = null, lastRun = null;
 async function pool(tasks, n, alive, onDone){
   let i = 0;
   const workers = Array.from({length:n}, async () => {
@@ -541,9 +752,16 @@ $('#btnRun').onclick = async () => {
   const tasks = [];
   const run = ++runId, alive = () => run === runId && !stopFlag;
   abortCtl = new AbortController();
+  // hit_id = year + running number, so a row in an exported table or an AI summary can be traced back
+  const perYear = {};
+  lastRun = {vols: sel.map(i => ({id:i.id, year:i.year})), terms, done: new Set(), failed: new Set()};
   sel.forEach(it => terms.forEach(t => tasks.push(async () => {
-    try{ const hits = await searchInside(it, t); if(!alive()) return; results.push(...hits); render(); }
-    catch(e){ if(alive()) errors.push(`${it.year ?? it.id} · ${t}: ${e.message}`); }
+    try{
+      const hits = await searchInside(it, t); if(!alive()) return;
+      hits.forEach(h => { const y = h.year ?? 'undated'; perYear[y] = (perYear[y] || 0) + 1; h.hid = `${y}-${String(perYear[y]).padStart(3, '0')}`; });
+      results.push(...hits); lastRun.done.add(it.id + '\u0000' + t); render();
+    }
+    catch(e){ if(alive()){ errors.push(`${it.year ?? it.id} · ${t}: ${e.message}`); lastRun.failed.add(it.id + '\u0000' + t); } }
   })));
   let done = 0;
   $('#prog').style.width = '0';
@@ -556,7 +774,11 @@ $('#btnRun').onclick = async () => {
   $('#btnRun').disabled = false; $('#btnStop').disabled = true;
   let msg = `${stopFlag ? 'Stopped' : 'Done'}: ${sel.length} volumes × ${terms.length} terms, ${results.length} hits.`;
   const loc = sel.filter(i => i.unindexed);
-  if(loc.length) msg += `<br>${loc.map(i => i.year ?? i.id).join(', ')} not in the full-text index; searched the OCR text instead (marked "OCR text"; page numbers may be estimates).`;
+  if(loc.length){
+    const est = new Set(results.filter(r => r.approx).map(r => r.year ?? r.id));
+    msg += `<br>${loc.map(i => i.year ?? i.id).join(', ')} not in the full-text index; searched the OCR text instead (marked "OCR text").`;
+    if(est.size) msg += ` <span class="approx">Page links for ${[...est].join(', ')} are estimates (≈) and may be off by many pages; turn pages to find the entry.</span>`;
+  }
   if(errors.length) msg += `<br><span class="err">${errors.length} failed:</span>` + errors.slice(0,5).map(esc).join('<br>');
   status(msg, errors.length ? '' : 'ok');
 };
@@ -583,7 +805,7 @@ function filtered(){
 }
 function render(){
   const r = filtered();
-  $('#btnCsv').disabled = !results.length;
+  $('#btnCsv').disabled = $('#btnAI').disabled = !results.length;
   $('#rcount').textContent = results.length ? `Showing ${r.length} of ${results.length}` : '';
   if(!r.length){ $('#tbody').innerHTML = `<tr><td colspan="4" class="empty">${results.length ? 'No results match the filter' : 'No results'}</td></tr>`; return; }
   const multiVol = new Set();
@@ -600,18 +822,30 @@ function render(){
       html += `<tr class="yrow"><td colspan="4">${x.year ?? 'Undated'}<span>${counts[x.year]} hit${counts[x.year] === 1 ? '' : 's'}</span></td></tr>`;
     }
     const vol = multiVol.has(String(x.year)) ? `<div class="id">${esc(x.volume || x.id)}</div>` : '';
+    const ri = results.indexOf(x);
     html += `
     <tr>
-      <td>${x.year ?? '?'}${vol}</td>
+      <td>${x.year ?? '?'}${vol}<div class="id" title="Hit ID, also in the CSV and Copy for AI">${esc(x.hid || '')}</div></td>
       <td>${esc(x.term)}</td>
-      <td class="snip${x.full ? ' more' : ''}" data-r="${results.indexOf(x)}">${snippetHTML(x._open ? x.full : x.text)}${x.full ? `<span class="tog">${x._open ? 'Collapse' : 'Show full text'}</span>` : ''}</td>
-      <td><a href="${pageUrl(x)}" target="_blank" rel="noopener">${x.approx ? '≈' : ''}p${x.page ?? '?'}</a>${x.local ? `<div class="id" title="${x.approx ? 'Not in the full-text index: result from the OCR text, page number estimated from position' : 'Not in the full-text index: result from the OCR text'}">OCR text</div>` : ''}</td>
+      <td class="snip${x.full ? ' more' : ''}" data-r="${ri}">${snippetHTML(x._open ? x.full : x.text)}${x.full ? `<span class="tog">${x._open ? 'Collapse' : 'Show full text'}</span>` : ''}</td>
+      <td><a href="${pageUrl(x)}" target="_blank" rel="noopener"${x.approx ? ' class="approx" title="Estimated from the hit\'s position in the OCR text; the entry may be many pages away"' : ''}>${x.approx ? '≈' : ''}scan ${x.page ?? '?'}</a>` +
+        (x.printed ? `<div class="id" title="Page number printed in the directory">p. ${esc(x.printed)}</div>` : '') +
+        (x.local ? `<div class="id" title="Not in the Internet Archive's full-text index: found in the downloaded OCR text">OCR text</div>` : '') +
+        `<button class="cite" data-cite="${ri}" title="Copy a citation for this page">Cite</button></td>
     </tr>`;
   });
   $('#tbody').innerHTML = html;
 }
 $('#filter').addEventListener('input', render);
-$('#tbody').addEventListener('click', e => {
+$('#tbody').addEventListener('click', async e => {
+  const cb = e.target.closest('button.cite');
+  if(cb){
+    const x = results[+cb.dataset.cite]; if(!x) return;
+    const ok = await copyText(citation(x));
+    cb.textContent = ok ? 'Copied' : 'Copy failed';
+    setTimeout(() => { cb.textContent = 'Cite'; }, 1500);
+    return;
+  }
   const td = e.target.closest('td.more'); if(!td || getSelection().toString()) return;   // don't toggle while selecting text
   const x = results[+td.dataset.r]; if(!x) return;
   x._open = !x._open;
@@ -620,9 +854,22 @@ $('#tbody').addEventListener('click', e => {
 document.querySelectorAll('th[data-k]').forEach(th => th.onclick = () => {
   const k = th.dataset.k; sortDir = (sortKey === k) ? -sortDir : 1; sortKey = k; render();
 });
+/* ---------- citations, CSV, Copy for AI ---------- */
+const today = () => new Date().toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'});
+const plain = s => stripMarks(s || '').replace(/\s+/g, ' ').trim();
+function citation(x){
+  const title = (x.title || x.id).replace(/[\s.:;,]+$/, '');
+  const vol = x.volume ? `, ${x.volume}` : '';
+  const yr = x.year && !String(title).includes(String(x.year)) ? ` (${x.year})` : '';
+  const where = (x.printed ? `p. ${x.printed}, ` : '') + `scan ${x.approx ? 'approx. ' : ''}${x.page ?? '?'}`;
+  return `${title}${vol}${yr}, ${where}. Internet Archive, ${pageUrl(x)} (accessed ${today()}).`;
+}
+const fullText = x => plain(x.full || x.text);
+const context = x => plain(x.ctx || x.text);
 $('#btnCsv').onclick = () => {
-  const rows = [['year','term','snippet','scan_index','link','title','volume','identifier']].concat(filtered().map(x =>
-    [x.year ?? '', x.term, stripMarks(x.text).replace(/\s+/g,' '), x.page ?? '', pageUrl(x), x.title, x.volume, x.id]));
+  const rows = [['hit_id','year','term','snippet','context','full_text','scan','scan_estimated','printed_page','source','link','citation','title','volume','identifier']].concat(filtered().map(x =>
+    [x.hid || '', x.year ?? '', x.term, plain(x.text), context(x), fullText(x), x.page ?? '', x.approx ? 'yes' : '', x.printed || '',
+     x.local ? 'OCR text' : 'search index', pageUrl(x), citation(x), x.title, x.volume, x.id]));
   const csv = '﻿' + rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
@@ -630,9 +877,71 @@ $('#btnCsv').onclick = () => {
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
 
-/* ---------- init ---------- */
+/* Copy for AI: the filtered results as a tab-separated table, with instructions that keep an assistant
+   to the evidence (no filling gaps, flag uncertainty, keep hit_id and link on every row). */
+function aiText(rows){
+  const terms = lastRun ? lastRun.terms : [...new Set(rows.map(r => r.term))];
+  const lines = [];
+  lines.push('I am researching historic city directories for a building or property history. Below are OCR excerpts found with City Directory Search, a tool that searches scanned directories on the Internet Archive. The OCR text contains errors: misread letters and numbers, and lines from neighboring columns run together.');
+  lines.push('');
+  lines.push('Search terms: ' + terms.map(t => `"${t}"`).join(', '));
+  lines.push('Goal: for each year, find the entries that match the search terms. For an address, list who lived or did business there. For a name, list their address, occupation, and household.');
+  lines.push('');
+  lines.push('How to read the entries: directory listings are usually "Surname Given-name (spouse) occupation employer h/r address". Abbreviations vary by publisher and year (each volume has a key near the front). Common ones in Polk directories: h = householder, r = resides or rooms, bds = boards, rms = rooms, wid = widow (of), (c) = "colored," which older directories used to mark Black residents, av = avenue, lab = laborer, clk = clerk, emp = employee, mach = machinist, carp = carpenter, slsmn = salesman, tchr = teacher, propr = proprietor, mgr = manager, ret = retired, nr = near, cor = corner. A name in parentheses after a man\'s name is usually his wife\'s given name. Street directory sections list addresses in house-number order with the occupant after each number.');
+  lines.push('');
+  lines.push('Rules:');
+  lines.push('1. Use only the excerpts below. Do not add names, dates, or details from anywhere else, and do not guess to fill gaps.');
+  lines.push('2. If you correct an obvious OCR error, show the original text in brackets, e.g. Smith [Srnith].');
+  lines.push('3. Give each row a confidence (high, medium, low) and say why when it is not high. List excerpts that turned out not to match.');
+  lines.push('4. Keep the hit_id and link on every row so each fact can be checked against the page scan.');
+  lines.push('');
+  lines.push('Output: one table with columns year | hit_id | address | name(s) | occupation or business | household notes (spouse, h/r, other) | confidence | link. Then a short list of years with no matching entry, and anything that looks like a change (new occupant, renumbered address, change of use).');
+  if(lastRun){
+    const gaps = [];
+    terms.forEach(t => {
+      const hitIds = new Set(results.filter(r => r.term === t).map(r => r.id));
+      const none = lastRun.vols.filter(v => lastRun.done.has(v.id + '\u0000' + t) && !hitIds.has(v.id)).map(v => v.year ?? v.id);
+      const failed = lastRun.vols.filter(v => lastRun.failed.has(v.id + '\u0000' + t)).map(v => v.year ?? v.id);
+      if(none.length) gaps.push(`"${t}": searched with no hits in ${[...new Set(none)].join(', ')}`);
+      if(failed.length) gaps.push(`"${t}": search failed (not checked) in ${[...new Set(failed)].join(', ')}`);
+    });
+    if(gaps.length){ lines.push(''); lines.push('Volumes searched without a hit (absence in the OCR is not proof of absence in the directory):'); gaps.forEach(g => lines.push('- ' + g)); }
+  }
+  lines.push('');
+  lines.push('Data (tab-separated):');
+  lines.push(['hit_id','year','term','printed_page','excerpt','link'].join('\t'));
+  rows.forEach(x => lines.push([x.hid || '', x.year ?? '', x.term, x.printed || '', context(x).replace(/\t/g, ' '), pageUrl(x)].join('\t')));
+  return lines.join('\n');
+}
+$('#btnAI').onclick = async () => {
+  const rows = filtered().slice().sort((a, b) => (a.year ?? 0) - (b.year ?? 0) || String(a.hid).localeCompare(String(b.hid)));
+  const text = aiText(rows);
+  const ok = await copyText(text);
+  const words = Math.round(text.length / 6 / 100) * 100;
+  status(ok ? `Copied ${rows.length} result${rows.length === 1 ? '' : 's'} with instructions (about ${words.toLocaleString()} words). Paste it into your AI assistant.` +
+      (text.length > 120000 ? ' <span class="approx">That is long; filter the results first if the assistant cuts it off.</span>' : '') +
+      ' Verify every fact against the page scan before using it.'
+    : 'Copy failed. Use Export CSV instead.', ok ? 'ok' : 'err');
+};
+
+/* ---------- init ----------
+   A link (?c= etc.) wins; otherwise reopen the last collection from its saved list. Nothing is loaded
+   until a collection is chosen, so the tool doesn't assume any one city. */
 renderItems();
-if(!items.length) loadQuery(COLLECTION_Q);
+(function initSource(){
+  const fromURL = sourceFromURL();
+  const saved = store.get(LS_SOURCE, null);
+  const same = (a, b) => !!a && !!b && JSON.stringify(a) === JSON.stringify(b);
+  if(fromURL) setSource(fromURL, !(same(fromURL, saved) && items.length));
+  else if(saved && sourceQuery(saved)){
+    setSource(saved, !items.length);
+  }else{
+    showSource(null);
+    // lists saved by earlier versions had no recorded source; they were the Indianapolis collection by default
+    if(items.length && items.some(i => /^polksindianapol|^citydir\d{4}cdap/.test(i.id))) setSource({type:'preset', id:'indianapolis'}, false);
+    else status('Choose a directory collection to begin.');
+  }
+})();
 })();
 </script>
 </body>
