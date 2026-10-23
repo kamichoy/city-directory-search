@@ -1168,6 +1168,8 @@ function aiText(rows){
   const years = lastRun ? lastRun.vols.map(v => v.year).filter(Boolean) : rows.map(r => r.year).filter(Boolean);
   const span = years.length ? ` (${Math.min(...years)} to ${Math.max(...years)})` : '';
   const L = [], p = s => L.push(s);
+  p('Do the task below now, in this reply. Do not ask clarifying questions, offer options, or summarize what you are about to do; start directly with section A. If a choice is unclear, pick the most careful reading and note it in one line. If you run out of space, stop at the end of a complete row, write "CONTINUES - reply \'continue\'", and pick up from the next row when asked.');
+  p('');
   p('You are helping with historic property research (for example a National Register nomination or a Section 106 review) using city directories. Below are OCR excerpts found with City Directory Search, a tool that searches scanned directories on the Internet Archive. The OCR contains errors: misread letters and numbers, words split or run together, and lines from neighboring columns mixed in. Your job is a careful first pass that sorts these excerpts into tables a researcher will check against the page scans. The directories are the source, not you.');
   p('');
   p('SEARCH');
@@ -1195,7 +1197,7 @@ function aiText(rows){
   p('4. Give a confidence (high, medium, low) and a short reason when it is not high. Rows that are variant or possible matches, ads, or starts_at_match are at most medium until checked on the scan.');
   p('5. No hit is not proof of absence: the page may be misread, folded, damaged, or tightly bound in the scan.');
   p('');
-  p('OUTPUT');
+  p('OUTPUT (no introduction; keep notes short; sections B to F can be brief lists)');
   p('A. Occupancy: one row per person or business per year: year | hit_id | address as printed | name(s) | occupation or business | household notes (spouse, h/r/b, other) | confidence and reason | link.');
   p('B. Advertisements and headings: year | hit_id | what can be read | what it corroborates, if anything | link.');
   p('C. Not matching: hit_ids that turned out to be other addresses or unrelated, with a few words why.');
@@ -1225,6 +1227,7 @@ $('#btnAI').onclick = async () => {
   const ok = await copyText(text);
   const words = Math.round(text.length / 6 / 100) * 100;
   status(ok ? `Copied ${rows.length} result${rows.length === 1 ? '' : 's'} with instructions (about ${words.toLocaleString()} words). Paste it into your AI assistant.` +
+      (rows.length > 40 ? ' <span class="approx">More than 40 results: free assistants often stall or cut off long tables. Filter to a decade (type e.g. 192 in Filter results) and copy one batch at a time.</span>' : '') +
       (text.length > 120000 ? ' <span class="approx">That is long; filter the results first if the assistant cuts it off.</span>' : '') +
       ' Verify every fact against the page scan before using it.'
     : 'Copy failed. Use Export CSV instead.', ok ? 'ok' : 'err');
