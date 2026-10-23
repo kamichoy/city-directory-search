@@ -47,6 +47,7 @@ select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px
 [hidden]{display:none !important}
 .cite{display:block;margin-top:4px;padding:1px 6px;font-size:11px;color:var(--muted)}
 .approx{color:var(--err)}
+.ctxnote{margin-top:4px;font-family:-apple-system,"Segoe UI",sans-serif;font-size:11px;color:var(--muted)}
 .opts{margin-top:8px}
 label.chk{display:flex;gap:8px;align-items:flex-start;color:var(--ink);font-size:12.5px;margin:6px 0 0;line-height:1.45}
 label.chk input{margin-top:2px;flex:none}
@@ -723,24 +724,34 @@ function loadRawIndex(item, meta){
 async function pageText(item, meta, leaf){
   const key = item.id + '#' + leaf;
   if(pageTextCache.has(key)) return pageTextCache.get(key);
+  // resolves to {text} or {fail: reason}; reasons are logged as [cds] in the browser console
+  const fail = reason => { console.warn('[cds] page text unavailable for', item.id, 'scan', leaf + ':', reason); return {fail: reason}; };
   const p = (async () => {
-    if(!meta.hocr) return null;
+    if(!meta.hocr) return fail('item has no _hocr.html');
+    if(!meta.pi) return fail('item has no page index');
+    if(!meta.pn) return fail('item has no _page_numbers.json');
     const [idx, pn] = await Promise.all([loadRawIndex(item, meta), loadPageNumbers(item, meta)]);
-    if(!idx || !pn) return null;
+    if(!idx) return fail('page index could not be read');
+    if(!pn) return fail('page numbers could not be read');
     const i = pn.leafs.indexOf(leaf);
     const e = idx[i];
-    if(i < 0 || !Array.isArray(e) || e.length < 4 || !(e[3] > e[2])) return null;
+    if(i < 0) return fail('scan not in page numbers');
+    if(!Array.isArray(e) || e.length < 4 || !(e[3] > e[2])) return fail('page index has no hOCR range');
     const ctl = new AbortController();
-    const r = await fetch(`https://${meta.server}${meta.dir}/${encodeURIComponent(meta.hocr)}`,
-      {headers:{Range:`bytes=${e[2]}-${e[3] - 1}`}, signal: ctl.signal});
-    if(r.status !== 206){ ctl.abort(); return null; }   // never download the whole hOCR file
+    let r;
+    try{
+      r = await fetch(`https://${meta.server}${meta.dir}/${encodeURIComponent(meta.hocr)}`,
+        {headers:{Range:`bytes=${e[2]}-${e[3] - 1}`}, signal: ctl.signal});
+    }catch(err){ return fail('download blocked (' + err.message + ')'); }
+    if(r.status !== 206){ ctl.abort(); return fail('server ignored the byte range (HTTP ' + r.status + ')'); }   // never download the whole hOCR file
     const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
     const pars = [...doc.querySelectorAll('.ocr_par')];
     const lineText = el => [...el.querySelectorAll('.ocrx_word')].map(w => w.textContent.trim()).filter(Boolean).join(' ');
     const blocks = pars.length ? pars.map(pp => [...pp.querySelectorAll('.ocr_line,.ocrx_line,.ocr_caption,.ocr_header,.ocr_textfloat')].map(lineText).join('\n'))
                                : [...doc.querySelectorAll('.ocr_line,.ocrx_line')].map(lineText);
-    return blocks.join('\n') || null;
-  })().catch(() => null);
+    const text = blocks.join('\n').trim();
+    return text ? {text} : fail('page OCR is empty');
+  })().catch(err => fail(err.message));
   pageTextCache.set(key, p);
   return p;
 }
@@ -749,8 +760,10 @@ async function extendContext(item, meta, h){
   const raw = String(h.full || h.text);
   const lead = stripMarks(raw.slice(0, Math.max(0, raw.search(/\{\{\{|<IA_FTS_MATCH>/i)))).trim();
   if(lead.length >= 40) return;
-  const P = await pageText(item, meta, h.page);
-  if(!P) return;
+  const note = msg => { if(lead.length < 8) h.ctxNote = msg; };   // only flag passages that really start at the match
+  const pt = await pageText(item, meta, h.page);
+  if(!pt.text){ note('page text unavailable: ' + pt.fail); return; }
+  const P = pt.text;
   const R = stripMarks(raw);
   const ns = R.replace(/\s+/g, '');
   let found = null;
@@ -760,7 +773,7 @@ async function extendContext(item, meta, h){
     const m = new RegExp([...probe].map(reEsc).join('\\s*')).exec(P);
     if(m){ found = m.index; break; }
   }
-  if(found == null) return;
+  if(found == null){ note('passage not found in the page text'); console.warn('[cds] passage not found on page', item.id, h.page); return; }
   // the hit's position in P: skip as many non-space characters as precede the first highlight in R
   let k = stripMarks(raw.slice(0, raw.search(/\{\{\{|<IA_FTS_MATCH>/i))).replace(/\s+/g, '').length, pos = found;
   while(k > 0 && pos < P.length){ if(!/\s/.test(P[pos])) k--; pos++; }
@@ -775,6 +788,7 @@ async function extendContext(item, meta, h){
   h.full = hi(win(900, 900));
   h.ctx = win(450, 450).replace(/\s+/g, ' ');
   h.extended = true;
+  if(P.slice(0, pos).replace(/\s+/g, '').length < 3) note('nothing comes before this passage in the page OCR');
 }
 
 async function searchLocal(item, meta, term){
@@ -1072,7 +1086,7 @@ function render(){
     <tr>
       <td>${x.year ?? '?'}${vol}<div class="id" title="Hit ID, also in the CSV and Copy for AI">${esc(x.hid || '')}</div></td>
       <td>${esc(x.term)}${x.match ? `<div><span class="badge ${x.match}" title="${x.match === 'possible' ? 'Number is one character off after correcting OCR; may be a different address' : 'Found as an OCR variant of the house number'}">${x.match === 'possible' ? 'possible' : 'OCR variant'}: ${esc(x.matched || '')}</span></div>` : ''}</td>
-      <td class="snip${x.full ? ' more' : ''}" data-r="${ri}">${snippetHTML(x._open ? x.full : x.text)}${x.full ? `<span class="tog">${x._open ? 'Collapse' : 'Show full text'}</span>` : ''}</td>
+      <td class="snip${x.full ? ' more' : ''}" data-r="${ri}">${snippetHTML(x._open ? x.full : x.text)}${x.full ? `<span class="tog">${x._open ? 'Collapse' : 'Show full text'}</span>` : ''}${x.ctxNote ? `<div class="ctxnote" title="${esc(x.ctxNote)}">Starts at the match: ${esc(x.ctxNote)}. Open the scan to see the lines before it; on directory pages this is often a margin advertisement or a heading.</div>` : ''}</td>
       <td><a href="${pageUrl(x)}" target="_blank" rel="noopener"${x.approx ? ' class="approx" title="Estimated from the hit\'s position in the OCR text; the entry may be many pages away"' : ''}>${x.approx ? '≈' : ''}scan ${x.page ?? '?'}</a>` +
         (x.printed ? `<div class="id" title="Page number printed in the directory">p. ${esc(x.printed)}</div>` : '') +
         (x.local ? `<div class="id" title="Not in the Internet Archive's full-text index: found in the downloaded OCR text">OCR text</div>` : '') +
@@ -1144,6 +1158,7 @@ function aiText(rows){
   lines.push('- Alphabetical (names) section: an entry starts with the surname and ENDS with the address, usually right after a one-letter code (h = householder, r = resides). "Chung Paul P pres Bamboo Inn Inc r118 W Ohio" means Paul P. Chung lived at 118 W Ohio. The person at an address is the name BEFORE the address; the text after it is the next entry. Lines that begin with a given name continue the surname of the line above.');
   lines.push('- Street (reverse) directory section: a street heading such as "OHIO W" is followed by house numbers, each followed by its occupant: "118 Bamboo Inn Inc".');
   lines.push('- Business sections list a business name followed by its address.');
+  lines.push('- Advertisements printed along page margins, headers and footers are often split by OCR into short fragments, e.g. "E 118 W. OHIO ST. INDIANAPOLIS". A fragment that starts at the address with no name before it is usually part of such an ad or a heading; say so and mark it low confidence rather than calling it a street heading or vacancy, and note that the scan should be checked.');
   lines.push('OCR misreads digits: 1 as l or i, 0 as O, 8 as B, so "r118" can appear as rll8, x118, or t118. Rows marked match=variant were found through such a misreading; rows marked match=possible have a house number one character off and may be a different address.');
   lines.push('Abbreviations vary by publisher and year (each volume has a key near the front). Common ones in Polk directories: h = householder, r = resides or rooms, bds = boards, rms = rooms, wid = widow (of), (c) = "colored," which older directories used to mark Black residents, av = avenue, lab = laborer, clk = clerk, emp = employee, mach = machinist, carp = carpenter, slsmn = salesman, tchr = teacher, propr = proprietor, mgr = manager, pres = president, ret = retired, nr = near, cor = corner. A name in parentheses after a man\'s name is usually his wife\'s given name.');
   lines.push('');
