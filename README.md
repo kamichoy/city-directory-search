@@ -64,6 +64,8 @@ Put one term per line: an address, a name, a business. Each term is searched in 
 - Words in a term must all appear in the same passage.
 - Put words in quotes to require them to appear together, e.g. `"N Meridian" 1234`. Case, punctuation, and line breaks are ignored, so `"N Meridian"` also matches `N. Meridian`. The quotes carry over to the Internet Archive viewer's search box when you open a result.
 - Quoted terms are also much faster. The Internet Archive's search returns every passage containing any one of the words, so an unquoted term with common words like `N` or `Meridian` can take a minute per volume or time out. A request that gets no answer in 45 seconds is dropped and reported as failed.
+- Names are listed surname first: search `Chung Paul`, not `Paul Chung`.
+- To follow a business and the places tied to it, put the business and each address on their own lines in one search. The AI instructions then ask for the links between them, for example employees of a business who lived at one of the addresses.
 - To look up an address, search house number plus street, e.g. `1234 N Meridian`. The street directory section (usually in the back) is arranged by street and house number.
 - **OCR-tolerant house numbers** (on by default). In the name listings an address comes last, after a code letter: `Chung Paul P pres Bamboo Inn Inc r118 W Ohio` (r = resides, h = householder). OCR reads `r118` as one word and often misreads the digits, so the index holds `rll8`, which a search for `118` never finds. In a test on the 1945 Indianapolis directory, `"118 W Ohio"` found 3 entries and `"rll8 W Ohio"` found 13 more. With this option, an address term also searches the number's common OCR forms (prefixed with r, h, x or t; 1 as l or i; 0 as o; 8 as b) and keeps those followed by the street. They are labelled **OCR variant**. It adds one request per address term and volume.
 - **Street sweep** (off by default) also searches the street on its own and keeps house numbers that are one character off after correcting OCR, e.g. `rlli8 W O‘hio` for 118 W Ohio. These are labelled **possible** and can be different addresses (here, 1118). Street names tolerate stray apostrophes and periods inside words.
@@ -95,8 +97,8 @@ Results appear as they come in, grouped by year.
 - The **Scan** link opens the page in the Internet Archive viewer with your term highlighted. The two-page view shows the matching page next to its neighbor. `scan 332` is the scan (image) number; below it, `p. 412` is the page number printed in the directory, when the Internet Archive has it.
 - A `≈` before the scan number means the page was estimated (see *Volumes missing from the full-text index* below). The entry may be many pages away.
 - **Cite** copies a citation for the page, e.g. *Polk's Indianapolis City Directory (1945), p. 412, scan 2311. Internet Archive, https://archive.org/details/…/page/leaf2311 (accessed October 23, 2026).* Check the title and publisher against the volume's title page before using it in a nomination.
-- **Export CSV** downloads the currently filtered results with these columns: `hit_id`, `year`, `term`, `match` (term, variant, or possible), `matched_text`, `flags` (ad, starts_at_match, page_estimated, from_ocr_text), `snippet`, `context` (about 900 characters around the hit), `full_text` (the whole OCR passage), `scan`, `scan_estimated`, `printed_page`, `source` (search index or OCR text), `link`, `citation`, `title`, `volume`, `identifier`.
-- **Copy for AI** copies the shown results to the clipboard, ready to paste into an AI assistant. See below.
+- **Export CSV** downloads the currently filtered results, one row per passage: when several terms (or a term and its OCR variants) found the same passage, they are merged into one row listing every term and hit ID. Columns: `hit_id`, `also_hit_ids`, `terms`, `year`, `match` (term, variant, or possible), `matched_text`, `flags` (ad, starts_at_match, page_estimated, from_ocr_text), `excerpt_marked` (the context with the match in `[[ ]]`), `snippet`, `context` (about 900 characters around the hit), `full_text` (the whole OCR passage), `scan`, `scan_estimated`, `printed_page`, `source` (search index or OCR text), `link`, `citation`, `title`, `volume`, `identifier`.
+- **Copy for AI** copies the shown results with instructions, ready to paste into an AI assistant. **AI instructions for the CSV** copies only the instructions, to paste alongside the exported CSV file. See below.
 
 ### 4. Sorting results with an AI assistant
 
@@ -108,7 +110,14 @@ Directory hits are messy: OCR errors, abbreviations, and neighboring entries run
 - ask for an occupancy table by year (address, names, occupation, household notes, confidence, hit ID, link), a separate list of advertisements and what they corroborate, hits that don't match, coverage gaps, changes over time, and the hits most worth checking on the scan;
 - list the volumes that were searched without a hit, and any searches that failed.
 
-Paste it into the assistant you use; nothing is sent anywhere by the tool. Treat the result as a finding aid, not a source: open the link on every row you plan to use and confirm it against the scan, and cite the directory, not the AI.
+The instructions adapt to the search: each term is labelled as an address or a name or business, and the assistant is asked for an address table, a people-and-businesses table that keeps business and home addresses apart (in `Wong Ming cook Bamboo Inn Inc r118 W Ohio`, 118 W Ohio is where Wong Ming lived, not the restaurant's address), and, with several terms, the connections between them.
+
+Two ways to use it:
+
+- **Paste:** Copy for AI, then paste into the assistant. Best for up to about 20–40 results; for more, filter to a decade and copy one batch at a time. Some free assistants limit message length or stall on long tables.
+- **File:** Export CSV, attach the file to the assistant, then paste **AI instructions for the CSV**. Better for long result sets. The instructions ask the assistant to work through every row and report how many it processed.
+
+Nothing is sent anywhere by the tool. Treat the result as a finding aid, not a source: open the link on every row you plan to use and confirm it against the scan, and cite the directory, not the AI.
 
 
 ## How it works
