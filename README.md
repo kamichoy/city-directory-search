@@ -89,22 +89,23 @@ Results appear as they come in, grouped by year.
 - Click a column header (**Year**, **Term**, **Scan**) to sort; click again to reverse.
 - **Filter results** narrows the table by excerpt text, term, or year.
 - Long excerpts are trimmed around the hit. Click one to show the full OCR passage.
+- **likely ad or heading** marks a short, mostly capital-letter passage that starts at the match, such as `E 118 W. OHIO ST. INDIANAPOLIS`. These are usually the last line of an advertisement: OCR splits ads into fragments and often misses the company name in large type. Read them on the scan. An ad can corroborate a business listed at the same address that year.
 - The Internet Archive returns one OCR paragraph per hit. When that paragraph starts at the hit, as it often does when an address wraps onto its own line, the name it belongs to is in the line before. For those hits the tool downloads just that page's OCR (one byte range of the item's `_hocr.html`, located with `_hocr_pageindex.json.gz`) and rebuilds the excerpt to include the text before it. This is capped at 10 pages per volume and 80 per search.
 - Each hit has an ID under its year, e.g. `1947-002`. It appears in the CSV and in Copy for AI, so a row in a spreadsheet or an AI summary can be traced back to its source.
 - The **Scan** link opens the page in the Internet Archive viewer with your term highlighted. The two-page view shows the matching page next to its neighbor. `scan 332` is the scan (image) number; below it, `p. 412` is the page number printed in the directory, when the Internet Archive has it.
 - A `≈` before the scan number means the page was estimated (see *Volumes missing from the full-text index* below). The entry may be many pages away.
 - **Cite** copies a citation for the page, e.g. *Polk's Indianapolis City Directory (1945), p. 412, scan 2311. Internet Archive, https://archive.org/details/…/page/leaf2311 (accessed October 23, 2026).* Check the title and publisher against the volume's title page before using it in a nomination.
-- **Export CSV** downloads the currently filtered results with these columns: `hit_id`, `year`, `term`, `match` (term, variant, or possible), `matched_text`, `snippet`, `context` (about 900 characters around the hit), `full_text` (the whole OCR passage), `scan`, `scan_estimated`, `printed_page`, `source` (search index or OCR text), `link`, `citation`, `title`, `volume`, `identifier`.
+- **Export CSV** downloads the currently filtered results with these columns: `hit_id`, `year`, `term`, `match` (term, variant, or possible), `matched_text`, `flags` (ad, starts_at_match, page_estimated, from_ocr_text), `snippet`, `context` (about 900 characters around the hit), `full_text` (the whole OCR passage), `scan`, `scan_estimated`, `printed_page`, `source` (search index or OCR text), `link`, `citation`, `title`, `volume`, `identifier`.
 - **Copy for AI** copies the shown results to the clipboard, ready to paste into an AI assistant. See below.
 
 ### 4. Sorting results with an AI assistant
 
 Directory hits are messy: OCR errors, abbreviations, and neighboring entries run together. An AI assistant is good at the first pass of sorting them into a table of who was at an address each year. **Copy for AI** copies the filtered results together with instructions that:
 
-- mark the matched words with `[[ ]]` and explain how to tell which entry they belong to (in name listings the address ends the entry, so the person is the name before it; in the street section the occupant follows the number);
-- explain OCR variants and possible matches, and common Polk abbreviations;
+- mark the matched words with `[[ ]]` and flag variant and possible matches, likely ads, excerpts that start at the match, and estimated pages;
+- explain how to read names listings (the address ends the entry, so the person is the name before it), business listings, the street directory, and advertisements, plus common OCR misreadings and Polk abbreviations;
 - tell the assistant to use only the excerpts, not to fill gaps from elsewhere, and to show the original text when it corrects an OCR error;
-- ask for a table by year (address, names, occupation, household notes, confidence, hit ID, link), followed by the years with no matching entry and any apparent changes;
+- ask for an occupancy table by year (address, names, occupation, household notes, confidence, hit ID, link), a separate list of advertisements and what they corroborate, hits that don't match, coverage gaps, changes over time, and the hits most worth checking on the scan;
 - list the volumes that were searched without a hit, and any searches that failed.
 
 Paste it into the assistant you use; nothing is sent anywhere by the tool. Treat the result as a finding aid, not a source: open the link on every row you plan to use and confirm it against the scan, and cite the directory, not the AI.
