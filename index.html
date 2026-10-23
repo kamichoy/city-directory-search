@@ -45,8 +45,15 @@ select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px
 .note{color:var(--muted);font-size:12px;margin-top:6px}
 .note:empty{display:none}
 [hidden]{display:none !important}
-.cite{margin-top:4px;padding:1px 6px;font-size:11px;color:var(--muted)}
+.cite{display:block;margin-top:4px;padding:1px 6px;font-size:11px;color:var(--muted)}
 .approx{color:var(--err)}
+.opts{margin-top:8px}
+label.chk{display:flex;gap:8px;align-items:flex-start;color:var(--ink);font-size:12.5px;margin:6px 0 0;line-height:1.45}
+label.chk input{margin-top:2px;flex:none}
+label.chk span{color:var(--muted)}
+label.chk b{color:var(--ink);font-weight:600}
+.badge{display:inline-block;margin-top:3px;padding:0 5px;border-radius:4px;font-size:11px;border:1px solid var(--line);color:var(--muted)}
+.badge.possible{color:var(--err);border-color:currentColor}
 tr.yrow td{background:var(--bg);font-weight:600;font-size:13px;padding:6px 8px}
 tr.yrow td span{color:var(--muted);font-weight:400;font-size:11px;margin-left:6px}
 .item{display:flex;gap:8px;align-items:flex-start;padding:5px 8px;border-bottom:1px solid var(--line);font-size:13px}
@@ -156,6 +163,10 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
     <h2>2 · Search terms</h2>
     <label>One term per line (addresses, names, businesses)</label>
     <textarea id="terms" placeholder="1234 N Meridian&#10;Walker Madam C J&#10;Crispus Attucks"></textarea>
+    <div class="opts">
+      <label class="chk"><input type="checkbox" id="optTolerant"> <span><b>OCR-tolerant house numbers.</b> For addresses like <code>118 W Ohio</code>, also find the number as OCR often reads it in listings: <code>rll8</code>, <code>h118</code>, <code>1l8</code>. Adds one request per address and volume.</span></label>
+      <label class="chk"><input type="checkbox" id="optSweep"> <span><b>Street sweep.</b> Also search the whole street and keep numbers one character off after correcting OCR (<code>rlli8 W O‘hio</code>), marked <i>possible</i>. Slower, and some will be other addresses.</span></label>
+    </div>
     <div class="row">
       <button class="primary" id="btnRun">Search</button>
       <button id="btnStop" disabled>Stop</button>
@@ -172,6 +183,8 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
         <li>Page links include <code>?q=</code>, so the viewer highlights your term. The two-page view shows the matching page next to its neighbor.</li>
         <li>The Scan column shows the scan (image) number, e.g. <code>scan 332</code>, and below it the page number printed in the directory when the Internet Archive has it, e.g. <code>p. 412</code>. <b>Cite</b> copies a citation for that page.</li>
         <li>A <span class="approx">≈</span> before the scan number means the page was estimated from the hit's position in the OCR text, because the volume is not in the Internet Archive's search index. The entry may be many pages away; turn pages to find it.</li>
+        <li>In name listings the address comes last, often glued to a code letter: <code>Chung Paul P pres Bamboo Inn Inc r118 W Ohio</code>. OCR then reads <code>r118</code> as one word, often <code>rll8</code>, which a plain search for 118 misses. <b>OCR-tolerant house numbers</b> catches these and labels them <i>OCR variant</i>. The person at an address is the name <i>before</i> it.</li>
+        <li>When a passage starts right at your address, the tool fetches that page's text to add the line before it, so the excerpt shows whose address it is.</li>
         <li>If an address doesn't turn up in a year, search the neighboring house numbers on the same street. Open the page where they appear and look for your address in the scan: it may be there but misread, or the page may be folded or damaged in the scan.</li>
         <li><b>Copy for AI</b> copies the shown results with instructions for an AI assistant to sort them into a table by year, keeping each hit ID and page link so you can check every row against the scan.</li>
       </ul>
@@ -496,7 +509,7 @@ $('#btnAdd').onclick = async () => {
 
 /* ---------- search inside ---------- */
 async function getMeta(id){
-  if(metaCache[id] && metaCache[id].v === 3) return metaCache[id];
+  if(metaCache[id] && metaCache[id].v === 4) return metaCache[id];
   const m = await getJSON('https://archive.org/metadata/' + encodeURIComponent(id));
   if(!m || !m.server) throw new Error('Item metadata not found');
   const files = (m.files || []).map(f => f.name);
@@ -509,7 +522,8 @@ async function getMeta(id){
   // page-aware OCR text: search text, the character range of each page in it, and each page's scan leaf
   const st = pick('_hocr_searchtext.txt.gz'), pi = pick('_hocr_pageindex.json.gz'), pn = pick('_page_numbers.json');
   const pages = parseInt(first(m.metadata && m.metadata.imagecount)) || null;
-  const meta = {v:3, server: m.server, dir: m.dir, doc, txt, st, pi, pn, pages};
+  const hocr = pick('_hocr.html');
+  const meta = {v:4, server: m.server, dir: m.dir, doc, txt, st, pi, pn, hocr, pages};
   metaCache[id] = meta; store.set(LS_META, metaCache);
   return meta;
 }
@@ -598,6 +612,171 @@ function loadText(item, meta){
 }
 const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const wordsOf = s => s.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+
+/* ---------- OCR-tolerant house numbers ----------
+   In directory listings the address follows a one-letter code glued to the number ("r118 W Ohio" =
+   resides at 118), and OCR often reads 1 as l, 0 as O, 8 as B. The search engine then indexes "rll8",
+   which a search for 118 never finds. For a term that starts with a house number followed by a street,
+   two extra kinds of match are made:
+     variant   the number in a misread or prefixed form (rll8, h118, 1l8, x118), right before the street
+     possible  (street sweep only) the number off by one character after un-confusing it (rlli8 -> 1118)
+   Street names tolerate stray apostrophes and periods inside words (O‘hio, N. Meridian). */
+const OPT_KEY = 'cds_opts_v1';
+const opts = Object.assign({tolerant:true, sweep:false}, store.get(OPT_KEY, {}));
+function parseAddress(query){
+  const w = wordsOf(query);
+  if(w.length < 2 || !/^\d{1,5}$/.test(w[0]) || w.slice(1).some(x => /^\d+$/.test(x) && !/^\d+(st|nd|rd|th)$/i.test(x))) return null;
+  return {num:w[0], street:w.slice(1)};
+}
+const CONFUSE = {'1':['l','i'], '0':['o'], '8':['b'], '5':['s'], '6':['b'], '2':['z']};
+const TO_DIGIT = {l:'1', i:'1', I:'1', L:'1', '|':'1', '!':'1', O:'0', o:'0', B:'8', S:'5', s:'5', b:'6', Z:'2', z:'2'};
+const PREFIXES = ['', 'r', 'h', 'x', 't'];   // r resides, h householder; x and t are common misreadings of r
+function variantTokens(num){
+  // number forms with up to two confused characters, fewest substitutions first
+  let forms = [{s:'', n:0}];
+  for(const ch of num){
+    const next = [];
+    for(const f of forms){
+      next.push({s:f.s + ch, n:f.n});
+      if(f.n < 2) for(const alt of (CONFUSE[ch] || [])) next.push({s:f.s + alt, n:f.n + 1});
+    }
+    forms = next;
+  }
+  forms.sort((a, b) => a.n - b.n);
+  const out = [];
+  for(const f of forms.slice(0, 16)) for(const p of PREFIXES){
+    const t = p + f.s;
+    if(t !== num && !out.includes(t)) out.push(t);
+  }
+  return out.slice(0, 60);
+}
+function toDigits(s){
+  let out = '', real = 0;
+  for(const ch of s){
+    if(/\d/.test(ch)){ out += ch; real++; }
+    else if(TO_DIGIT[ch]) out += TO_DIGIT[ch];
+    else return null;
+  }
+  return real ? out : null;
+}
+function within1(a, b){   // edit distance exactly 1
+  if(a === b || Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, d = 0;
+  while(i < a.length && j < b.length){
+    if(a[i] === b[j]){ i++; j++; continue; }
+    if(++d > 1) return false;
+    if(a.length > b.length) i++; else if(b.length > a.length) j++; else { i++; j++; }
+  }
+  return d + (a.length - i) + (b.length - j) === 1;
+}
+function classifyNumber(token, num, fuzzy){
+  const cands = [token];
+  if(token.length > 1 && /^[rhxtbRHXTB]/.test(token)) cands.push(token.slice(1));
+  let best = null;
+  for(const c of cands){
+    const d = toDigits(c);
+    if(!d) continue;
+    if(d === num) return token === num ? 'exact' : 'variant';
+    if(fuzzy && num.length >= 2 && within1(d, num)) best = 'possible';
+  }
+  return best;
+}
+const APOS = "['‘’`´.]?";
+function streetRegex(street){
+  const word = w => [...w].map(reEsc).join(APOS);
+  return new RegExp('(?<![\\p{L}\\p{N}])' + street.map(word).join('[^\\p{L}\\p{N}]+') + '(?![\\p{L}\\p{N}])', 'giu');
+}
+// every "<number token> <street>" in s whose number matches addr; returns [{start, end, token, kind}]
+function findAddress(s, addr, fuzzy, re){
+  re = re || streetRegex(addr.street);
+  re.lastIndex = 0;
+  const out = [];
+  let m;
+  while((m = re.exec(s))){
+    const before = s.slice(Math.max(0, m.index - 24), m.index);
+    const t = before.match(/([\p{L}\p{N}|!]+)([^\p{L}\p{N}|!]{0,3})$/u);
+    if(!t) continue;
+    const kind = classifyNumber(t[1], addr.num, fuzzy);
+    if(kind) out.push({start: m.index - t[0].length, end: m.index + m[0].length, token: t[1], kind});
+  }
+  return out;
+}
+function markSpans(s, spans){
+  let out = '', at = 0;
+  spans.slice().sort((a, b) => a.start - b.start).forEach(sp => {
+    if(sp.start < at) return;
+    out += s.slice(at, sp.start) + '{{{' + s.slice(sp.start, sp.end) + '}}}'; at = sp.end;
+  });
+  return out + s.slice(at);
+}
+
+/* ---------- page text for context ----------
+   An Internet Archive search result is one OCR paragraph. When that paragraph begins at the address,
+   the name it belongs to sits at the end of the previous paragraph and is lost. The page index gives
+   each page's byte range in the item's _hocr.html, so the page's full OCR can be fetched on its own. */
+const idxCache = new Map(), pageTextCache = new Map();
+function loadRawIndex(item, meta){
+  if(!meta.pi) return Promise.resolve(null);
+  if(!idxCache.has(item.id)) idxCache.set(item.id, fetchText(dlURL(item.id, meta.pi)).then(t => JSON.parse(t)).catch(() => null));
+  return idxCache.get(item.id);
+}
+async function pageText(item, meta, leaf){
+  const key = item.id + '#' + leaf;
+  if(pageTextCache.has(key)) return pageTextCache.get(key);
+  const p = (async () => {
+    if(!meta.hocr) return null;
+    const [idx, pn] = await Promise.all([loadRawIndex(item, meta), loadPageNumbers(item, meta)]);
+    if(!idx || !pn) return null;
+    const i = pn.leafs.indexOf(leaf);
+    const e = idx[i];
+    if(i < 0 || !Array.isArray(e) || e.length < 4 || !(e[3] > e[2])) return null;
+    const ctl = new AbortController();
+    const r = await fetch(`https://${meta.server}${meta.dir}/${encodeURIComponent(meta.hocr)}`,
+      {headers:{Range:`bytes=${e[2]}-${e[3] - 1}`}, signal: ctl.signal});
+    if(r.status !== 206){ ctl.abort(); return null; }   // never download the whole hOCR file
+    const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+    const pars = [...doc.querySelectorAll('.ocr_par')];
+    const lineText = el => [...el.querySelectorAll('.ocrx_word')].map(w => w.textContent.trim()).filter(Boolean).join(' ');
+    const blocks = pars.length ? pars.map(pp => [...pp.querySelectorAll('.ocr_line,.ocrx_line,.ocr_caption,.ocr_header,.ocr_textfloat')].map(lineText).join('\n'))
+                               : [...doc.querySelectorAll('.ocr_line,.ocrx_line')].map(lineText);
+    return blocks.join('\n') || null;
+  })().catch(() => null);
+  pageTextCache.set(key, p);
+  return p;
+}
+// rebuild an API hit's excerpts from the page text, so they include what comes before the paragraph
+async function extendContext(item, meta, h){
+  const raw = String(h.full || h.text);
+  const lead = stripMarks(raw.slice(0, Math.max(0, raw.search(/\{\{\{|<IA_FTS_MATCH>/i)))).trim();
+  if(lead.length >= 40) return;
+  const P = await pageText(item, meta, h.page);
+  if(!P) return;
+  const R = stripMarks(raw);
+  const ns = R.replace(/\s+/g, '');
+  let found = null;
+  for(const n of [40, 20]){
+    const probe = ns.slice(0, n);
+    if(probe.length < 8) break;
+    const m = new RegExp([...probe].map(reEsc).join('\\s*')).exec(P);
+    if(m){ found = m.index; break; }
+  }
+  if(found == null) return;
+  // the hit's position in P: skip as many non-space characters as precede the first highlight in R
+  let k = stripMarks(raw.slice(0, raw.search(/\{\{\{|<IA_FTS_MATCH>/i))).replace(/\s+/g, '').length, pos = found;
+  while(k > 0 && pos < P.length){ if(!/\s/.test(P[pos])) k--; pos++; }
+  while(pos < P.length && /\s/.test(P[pos])) pos++;
+  const marked = [...new Set([...raw.matchAll(/(?:\{\{\{|<IA_FTS_MATCH>)([\s\S]*?)(?:\}\}\}|<\/IA_FTS_MATCH>)/gi)].map(x => x[1].trim()).filter(Boolean))];
+  const hi = s => marked.length ? s.replace(new RegExp('(' + marked.map(m => m.split(/\s+/).map(reEsc).join('\\s+')).join('|') + ')', 'gi'), '{{{$1}}}') : s;
+  const win = (back, fwd) => {
+    const a = Math.max(0, pos - back), b = Math.min(P.length, pos + fwd);
+    return (a > 0 ? '… ' : '') + P.slice(a, b).trim() + (b < P.length ? ' …' : '');
+  };
+  h.text = hi(win(160, 200));
+  h.full = hi(win(900, 900));
+  h.ctx = win(450, 450).replace(/\s+/g, ' ');
+  h.extended = true;
+}
+
 async function searchLocal(item, meta, term){
   const {text, starts, ends, leafs, printed, exact} = await loadText(item, meta);
   const {query, phrases} = parseTerm(term);
@@ -608,29 +787,50 @@ async function searchLocal(item, meta, term){
   const anchor = new RegExp('(?<![\\p{L}\\p{N}])' + anchorWords.map(reEsc).join('[^\\p{L}\\p{N}]+') + '(?![\\p{L}\\p{N}])', 'giu');
   const hl = new RegExp('(?<![\\p{L}\\p{N}])(' + [...new Set(words)].map(reEsc).join('|') + ')(?![\\p{L}\\p{N}])', 'giu');
   const out = [], W = 120;
-  let m;
-  while((m = anchor.exec(text)) && out.length < 300){
+  // where a text offset falls: its page, how to link it, and the page's bounds in the text
+  const locate = at => {
     let page, approx = false, pa = 0, pb = text.length, linkBy = 'n', pr = '';
     if(starts){
       let lo = 0, hi = starts.length - 1;
-      while(lo < hi){ const mid = (lo + hi + 1) >> 1; if(starts[mid] <= m.index) lo = mid; else hi = mid - 1; }
-      pa = starts[lo]; pb = ends ? Math.max(ends[lo], m.index + m[0].length) : (lo + 1 < starts.length ? starts[lo + 1] - 1 : text.length);
+      while(lo < hi){ const mid = (lo + hi + 1) >> 1; if(starts[mid] <= at) lo = mid; else hi = mid - 1; }
+      pa = starts[lo]; pb = ends ? Math.max(ends[lo], at + 1) : (lo + 1 < starts.length ? starts[lo + 1] - 1 : text.length);
       if(leafs){ page = leafs[lo]; linkBy = 'leaf'; pr = printed ? printed[lo] : ''; }
       else { page = lo; approx = !!ends && !exact; }   // OCR page order can differ from the viewer's numbering
-    } else if(meta.pages){ page = Math.round(m.index / text.length * (meta.pages - 1)); approx = true; }
+    } else if(meta.pages){ page = Math.round(at / text.length * (meta.pages - 1)); approx = true; }
+    return {page, approx, pa, pb, linkBy, pr};
+  };
+  // wider context (still within the page) for CSV and AI export
+  const context = (L, s, e) => {
+    const ca = Math.max(L.pa, s - 450), cb = Math.min(L.pb, e + 450);
+    return (ca > L.pa ? '… ' : '') + text.slice(ca, cb).replace(/\f/g, ' ').replace(/\s+/g, ' ').trim() + (cb < L.pb ? ' …' : '');
+  };
+  const hit = (L, snippet, ctx, b, extra = {}) => ({year:item.year, id:item.id, title:item.title || item.id, volume:item.volume || '', term,
+    text:snippet, ctx, page:L.page, linkBy:L.linkBy, printed:L.pr, approx:L.approx, local:true, _b:b, ...extra});
+  let m;
+  while((m = anchor.exec(text)) && out.length < 300){
+    const L = locate(m.index);
     // snippet window stays inside the page
-    const a = Math.max(pa, m.index - W), b = Math.min(pb, m.index + m[0].length + W);
+    const a = Math.max(L.pa, m.index - W), b = Math.min(L.pb, m.index + m[0].length + W);
     const win = text.slice(a, b);
     const nw = norm(win);
     if(!phrases.every(p => nw.includes(p))) continue;
     if(!words.every(w => nw.includes(' ' + w.toLowerCase() + ' '))) continue;
     if(out.length && out[out.length - 1]._b > m.index && !phrases.length) continue;   // same hit already covered
     const snippet = (a > 0 ? '…' : '') + win.replace(/\f/g, ' ').replace(hl, '{{{$1}}}') + (b < text.length ? '…' : '');
-    // wider context (still within the page) for CSV and AI export
-    const ca = Math.max(pa, m.index - 450), cb = Math.min(pb, m.index + m[0].length + 450);
-    const ctx = (ca > pa ? '… ' : '') + text.slice(ca, cb).replace(/\f/g, ' ').replace(/\s+/g, ' ').trim() + (cb < pb ? ' …' : '');
-    out.push({year:item.year, id:item.id, title:item.title || item.id, volume:item.volume || '', term, text:snippet, ctx,
-              page, linkBy, printed:pr, approx, local:true, _b:b});
+    out.push(hit(L, snippet, context(L, m.index, m.index + m[0].length), b));
+  }
+  // OCR-tolerant addresses: every "<number-ish> <street>" in the text
+  const addr = (opts.tolerant || opts.sweep) ? parseAddress(query) : null;
+  if(addr){
+    const found = findAddress(text, addr, opts.sweep).filter(f => f.kind !== 'exact');
+    for(const f of found){
+      if(out.length >= 400) break;
+      if(out.some(o => o.page != null && Math.abs((o._s ?? -1e9) - f.start) < 5)) continue;
+      const L = locate(f.start);
+      const a = Math.max(L.pa, f.start - W), b = Math.min(L.pb, f.end + W);
+      const snippet = (a > 0 ? '…' : '') + markSpans(text.slice(a, b), [{start:f.start - a, end:f.end - a}]).replace(/\f/g, ' ') + (b < text.length ? '…' : '');
+      out.push(hit(L, snippet, context(L, f.start, f.end), b, {match:f.kind, matched:text.slice(f.start, f.end).replace(/\s+/g, ' '), _s:f.start}));
+    }
   }
   return out;
 }
@@ -685,9 +885,9 @@ async function searchInside(item, term){
   if(item.unindexed) return searchLocal(item, meta, term);
   const {query, apiQuery, phrases} = parseTerm(term);
   const words = [...new Set(wordsOf(query).map(w => w.toLowerCase()))];
-  const url = `https://${meta.server}/fulltext/inside.php?item_id=${encodeURIComponent(item.id)}` +
-    `&doc=${encodeURIComponent(meta.doc)}&path=${encodeURIComponent(meta.dir)}&q=${encodeURIComponent(apiQuery)}`;
-  const data = await getJSON(url);
+  const inside = q => getJSON(`https://${meta.server}/fulltext/inside.php?item_id=${encodeURIComponent(item.id)}` +
+    `&doc=${encodeURIComponent(meta.doc)}&path=${encodeURIComponent(meta.dir)}&q=${encodeURIComponent(q)}`);
+  const data = await inside(apiQuery);
   if(data && (data.indexed === false || (data.error && /not yet indexed|not indexed/i.test(data.error)))){
     item.unindexed = true;
     return searchLocal(item, meta, term);
@@ -698,21 +898,58 @@ async function searchInside(item, term){
     const t = norm(mt.text || '');
     return phrases.every(p => t.includes(p)) && words.every(w => t.includes(' ' + w + ' '));
   });
-  const hits = matches.map(mt => {
-    const par = (mt.par && mt.par[0]) || {};
-    const page = par.page ?? (par.boxes && par.boxes[0] && par.boxes[0].page);
-    const short = trimSnippet(mt.text || '', phrases, words);
-    const wide = trimSnippet(mt.text || '', phrases, words, 450);
+  const pageOf = mt => { const par = (mt.par && mt.par[0]) || {}; return par.page ?? (par.boxes && par.boxes[0] && par.boxes[0].page); };
+  const mkHit = (mt, raw, extra = {}) => {
+    const short = trimSnippet(raw, phrases, words);
+    const wide = trimSnippet(raw, phrases, words, 450);
     return {year:item.year, id:item.id, title:item.title || item.id, volume:item.volume || '', term,
-            text: short || mt.text || '', full: short ? mt.text : null, page, linkBy:'leaf', printed:'',
-            ctx: stripMarks(wide || mt.text || '').replace(/\s+/g, ' ').trim()};
-  });
-  // printed page numbers, when the item has them (used in citations); a failure just leaves them blank
+            text: short || raw, full: short ? raw : null, page: pageOf(mt), linkBy:'leaf', printed:'',
+            ctx: stripMarks(wide || raw).replace(/\s+/g, ' ').trim(), ...extra};
+  };
+  const hits = matches.map(mt => mkHit(mt, mt.text || ''));
+
+  /* OCR-tolerant addresses. Two quoted phrases in one query must BOTH appear, so variants can't ride along
+     with the main query; instead one extra unquoted query lists the variant numbers (unquoted words are
+     OR'ed), and the street is checked here. The bare number itself is left out: a common number like
+     118 matches thousands of passages and times out. Street sweep adds a query for the street alone. */
+  const addr = (opts.tolerant || opts.sweep) ? parseAddress(query) : null;
+  if(addr){
+    const seen = new Set(hits.map(h => h.page + '|' + norm(h.full || h.text)));
+    const re = streetRegex(addr.street);
+    const take = (d, fuzzy) => {
+      for(const mt of (d && d.matches) || []){
+        const raw = stripMarks(mt.text || '');
+        const found = findAddress(raw, addr, fuzzy, re).filter(f => f.kind !== 'exact');
+        if(!found.length) continue;
+        const key = pageOf(mt) + '|' + norm(raw);
+        if(seen.has(key)) continue;
+        seen.add(key);
+        const kind = found.some(f => f.kind === 'variant') ? 'variant' : 'possible';
+        const f0 = found.find(f => f.kind === kind);
+        hits.push(mkHit(mt, markSpans(raw, found), {match:kind, matched:raw.slice(f0.start, f0.end).replace(/\s+/g, ' ')}));
+      }
+    };
+    const extra = [];
+    if(opts.tolerant) extra.push(inside(variantTokens(addr.num).join(' ')).then(d => take(d, false)).catch(e => { if(abortCtl && abortCtl.signal.aborted) throw e; }));
+    if(opts.sweep) extra.push(inside('"' + addr.street.join(' ') + '"').then(d => take(d, true)).catch(e => { if(abortCtl && abortCtl.signal.aborted) throw e; }));
+    await Promise.all(extra);
+  }
+
   if(hits.length){
+    // printed page numbers, when the item has them (used in citations); a failure just leaves them blank
     const pn = await loadPageNumbers(item, meta);
     if(pn){
       const byLeaf = new Map(pn.leafs.map((l, i) => [l, pn.printed[i]]));
       hits.forEach(h => { h.printed = byLeaf.get(h.page) || ''; });
+    }
+    // excerpts that start at (or just before) the hit get the text before them from the page; each page
+    // is one small download, capped per volume and per search so wide searches stay light
+    let budget = 10;
+    for(const h of hits){
+      const raw = String(h.full || h.text), at = raw.search(/\{\{\{|<IA_FTS_MATCH>/i);
+      if(at < 0 || stripMarks(raw.slice(0, at)).trim().length >= 25) continue;
+      if(budget-- <= 0 || ctxBudget.left-- <= 0) break;
+      await extendContext(item, meta, h);
     }
   }
   return hits;
@@ -724,7 +961,8 @@ function pageUrl(r){
   // Hits placed only by position in the OCR text use the "n" index.
   const p = (r.page != null) ? `/page/${(r.linkBy || (r.local ? 'n' : 'leaf'))}${r.page}` : '';
   // keep quoted phrases quoted in the viewer's search box (curly/CJK quotes become straight ones)
-  const q = r.term.replace(/[“”「」]/g, '"').replace(/\s+/g, ' ').trim();
+  // (for an OCR-variant match, highlight the variant as printed, e.g. rll8 W Ohio)
+  const q = (r.match && r.matched ? r.matched : r.term).replace(/[“”「」]/g, '"').replace(/\s+/g, ' ').trim();
   return `${base}${p}/mode/2up?q=${encodeURIComponent(q)}`;
 }
 
@@ -732,6 +970,7 @@ function pageUrl(r){
    download is tens of MB): it aborts the fetches and releases the pool at once. `alive` turns false
    for a stopped or superseded run, so stragglers that still finish are ignored. */
 let runId = 0, abortCtl = null, releasePool = null, lastRun = null;
+const ctxBudget = {left: 80};   // page downloads for context, per search run
 async function pool(tasks, n, alive, onDone){
   let i = 0;
   const workers = Array.from({length:n}, async () => {
@@ -754,6 +993,7 @@ $('#btnRun').onclick = async () => {
   abortCtl = new AbortController();
   // hit_id = year + running number, so a row in an exported table or an AI summary can be traced back
   const perYear = {};
+  ctxBudget.left = 80;
   lastRun = {vols: sel.map(i => ({id:i.id, year:i.year})), terms, done: new Set(), failed: new Set()};
   sel.forEach(it => terms.forEach(t => tasks.push(async () => {
     try{
@@ -782,6 +1022,11 @@ $('#btnRun').onclick = async () => {
   if(errors.length) msg += `<br><span class="err">${errors.length} failed:</span>` + errors.slice(0,5).map(esc).join('<br>');
   status(msg, errors.length ? '' : 'ok');
 };
+$('#optTolerant').checked = opts.tolerant;
+$('#optSweep').checked = opts.sweep;
+['optTolerant', 'optSweep'].forEach(id => $('#' + id).addEventListener('change', () => {
+  opts.tolerant = $('#optTolerant').checked; opts.sweep = $('#optSweep').checked; store.set(OPT_KEY, opts);
+}));
 $('#btnStop').onclick = () => {
   stopFlag = true;
   if(abortCtl) abortCtl.abort();
@@ -826,7 +1071,7 @@ function render(){
     html += `
     <tr>
       <td>${x.year ?? '?'}${vol}<div class="id" title="Hit ID, also in the CSV and Copy for AI">${esc(x.hid || '')}</div></td>
-      <td>${esc(x.term)}</td>
+      <td>${esc(x.term)}${x.match ? `<div><span class="badge ${x.match}" title="${x.match === 'possible' ? 'Number is one character off after correcting OCR; may be a different address' : 'Found as an OCR variant of the house number'}">${x.match === 'possible' ? 'possible' : 'OCR variant'}: ${esc(x.matched || '')}</span></div>` : ''}</td>
       <td class="snip${x.full ? ' more' : ''}" data-r="${ri}">${snippetHTML(x._open ? x.full : x.text)}${x.full ? `<span class="tog">${x._open ? 'Collapse' : 'Show full text'}</span>` : ''}</td>
       <td><a href="${pageUrl(x)}" target="_blank" rel="noopener"${x.approx ? ' class="approx" title="Estimated from the hit\'s position in the OCR text; the entry may be many pages away"' : ''}>${x.approx ? '≈' : ''}scan ${x.page ?? '?'}</a>` +
         (x.printed ? `<div class="id" title="Page number printed in the directory">p. ${esc(x.printed)}</div>` : '') +
@@ -866,9 +1111,17 @@ function citation(x){
 }
 const fullText = x => plain(x.full || x.text);
 const context = x => plain(x.ctx || x.text);
+// the wide context with the matched words wrapped in [[ ]], so an assistant can tell which entry hit
+function aiExcerpt(x){
+  const c = context(x);
+  const marked = [...new Set([...String(x.text).matchAll(/(?:\{\{\{|<IA_FTS_MATCH>)([\s\S]*?)(?:\}\}\}|<\/IA_FTS_MATCH>)/gi)].map(m => m[1].replace(/\s+/g, ' ').trim()).filter(Boolean))];
+  if(!marked.length) return c;
+  const re = new RegExp('(?<![\\p{L}\\p{N}])(' + marked.sort((a, b) => b.length - a.length).map(m => m.split(' ').map(reEsc).join('\\s+')).join('|') + ')(?![\\p{L}\\p{N}])', 'giu');
+  return c.replace(re, '[[$1]]');
+}
 $('#btnCsv').onclick = () => {
-  const rows = [['hit_id','year','term','snippet','context','full_text','scan','scan_estimated','printed_page','source','link','citation','title','volume','identifier']].concat(filtered().map(x =>
-    [x.hid || '', x.year ?? '', x.term, plain(x.text), context(x), fullText(x), x.page ?? '', x.approx ? 'yes' : '', x.printed || '',
+  const rows = [['hit_id','year','term','match','matched_text','snippet','context','full_text','scan','scan_estimated','printed_page','source','link','citation','title','volume','identifier']].concat(filtered().map(x =>
+    [x.hid || '', x.year ?? '', x.term, x.match || 'term', x.matched || '', plain(x.text), context(x), fullText(x), x.page ?? '', x.approx ? 'yes' : '', x.printed || '',
      x.local ? 'OCR text' : 'search index', pageUrl(x), citation(x), x.title, x.volume, x.id]));
   const csv = '﻿' + rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   const a = document.createElement('a');
@@ -887,7 +1140,12 @@ function aiText(rows){
   lines.push('Search terms: ' + terms.map(t => `"${t}"`).join(', '));
   lines.push('Goal: for each year, find the entries that match the search terms. For an address, list who lived or did business there. For a name, list their address, occupation, and household.');
   lines.push('');
-  lines.push('How to read the entries: directory listings are usually "Surname Given-name (spouse) occupation employer h/r address". Abbreviations vary by publisher and year (each volume has a key near the front). Common ones in Polk directories: h = householder, r = resides or rooms, bds = boards, rms = rooms, wid = widow (of), (c) = "colored," which older directories used to mark Black residents, av = avenue, lab = laborer, clk = clerk, emp = employee, mach = machinist, carp = carpenter, slsmn = salesman, tchr = teacher, propr = proprietor, mgr = manager, ret = retired, nr = near, cor = corner. A name in parentheses after a man\'s name is usually his wife\'s given name. Street directory sections list addresses in house-number order with the occupant after each number.');
+  lines.push('How to read the excerpts. The matched words are wrapped in [[ ]]. Each excerpt also contains neighboring entries, so first decide which entry the match belongs to:');
+  lines.push('- Alphabetical (names) section: an entry starts with the surname and ENDS with the address, usually right after a one-letter code (h = householder, r = resides). "Chung Paul P pres Bamboo Inn Inc r118 W Ohio" means Paul P. Chung lived at 118 W Ohio. The person at an address is the name BEFORE the address; the text after it is the next entry. Lines that begin with a given name continue the surname of the line above.');
+  lines.push('- Street (reverse) directory section: a street heading such as "OHIO W" is followed by house numbers, each followed by its occupant: "118 Bamboo Inn Inc".');
+  lines.push('- Business sections list a business name followed by its address.');
+  lines.push('OCR misreads digits: 1 as l or i, 0 as O, 8 as B, so "r118" can appear as rll8, x118, or t118. Rows marked match=variant were found through such a misreading; rows marked match=possible have a house number one character off and may be a different address.');
+  lines.push('Abbreviations vary by publisher and year (each volume has a key near the front). Common ones in Polk directories: h = householder, r = resides or rooms, bds = boards, rms = rooms, wid = widow (of), (c) = "colored," which older directories used to mark Black residents, av = avenue, lab = laborer, clk = clerk, emp = employee, mach = machinist, carp = carpenter, slsmn = salesman, tchr = teacher, propr = proprietor, mgr = manager, pres = president, ret = retired, nr = near, cor = corner. A name in parentheses after a man\'s name is usually his wife\'s given name.');
   lines.push('');
   lines.push('Rules:');
   lines.push('1. Use only the excerpts below. Do not add names, dates, or details from anywhere else, and do not guess to fill gaps.');
@@ -909,8 +1167,8 @@ function aiText(rows){
   }
   lines.push('');
   lines.push('Data (tab-separated):');
-  lines.push(['hit_id','year','term','printed_page','excerpt','link'].join('\t'));
-  rows.forEach(x => lines.push([x.hid || '', x.year ?? '', x.term, x.printed || '', context(x).replace(/\t/g, ' '), pageUrl(x)].join('\t')));
+  lines.push(['hit_id','year','term','match','printed_page','excerpt','link'].join('\t'));
+  rows.forEach(x => lines.push([x.hid || '', x.year ?? '', x.term, x.match || 'term', x.printed || '', aiExcerpt(x).replace(/\t/g, ' '), pageUrl(x)].join('\t')));
   return lines.join('\n');
 }
 $('#btnAI').onclick = async () => {

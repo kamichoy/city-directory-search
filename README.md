@@ -65,6 +65,8 @@ Put one term per line: an address, a name, a business. Each term is searched in 
 - Put words in quotes to require them to appear together, e.g. `"N Meridian" 1234`. Case, punctuation, and line breaks are ignored, so `"N Meridian"` also matches `N. Meridian`. The quotes carry over to the Internet Archive viewer's search box when you open a result.
 - Quoted terms are also much faster. The Internet Archive's search returns every passage containing any one of the words, so an unquoted term with common words like `N` or `Meridian` can take a minute per volume or time out. A request that gets no answer in 45 seconds is dropped and reported as failed.
 - To look up an address, search house number plus street, e.g. `1234 N Meridian`. The street directory section (usually in the back) is arranged by street and house number.
+- **OCR-tolerant house numbers** (on by default). In the name listings an address comes last, after a code letter: `Chung Paul P pres Bamboo Inn Inc r118 W Ohio` (r = resides, h = householder). OCR reads `r118` as one word and often misreads the digits, so the index holds `rll8`, which a search for `118` never finds. In a test on the 1945 Indianapolis directory, `"118 W Ohio"` found 3 entries and `"rll8 W Ohio"` found 13 more. With this option, an address term also searches the number's common OCR forms (prefixed with r, h, x or t; 1 as l or i; 0 as o; 8 as b) and keeps those followed by the street. They are labelled **OCR variant**. It adds one request per address term and volume.
+- **Street sweep** (off by default) also searches the street on its own and keeps house numbers that are one character off after correcting OCR, e.g. `rlli8 W O‘hio` for 118 W Ohio. These are labelled **possible** and can be different addresses (here, 1118). Street names tolerate stray apostrophes and periods inside words.
 - OCR often confuses `0`/`O` and `1`/`l`, and multi-column layouts can run lines together. If nothing comes up, try a shorter term or an alternate spelling.
 - If an address doesn't turn up in a year, search the neighboring house numbers on the same street. Open the page where they appear and look for your address in the scan: it may be there but misread, or the page may be folded or damaged in the scan.
 
@@ -87,18 +89,20 @@ Results appear as they come in, grouped by year.
 - Click a column header (**Year**, **Term**, **Scan**) to sort; click again to reverse.
 - **Filter results** narrows the table by excerpt text, term, or year.
 - Long excerpts are trimmed around the hit. Click one to show the full OCR passage.
+- The Internet Archive returns one OCR paragraph per hit. When that paragraph starts at the hit, as it often does when an address wraps onto its own line, the name it belongs to is in the line before. For those hits the tool downloads just that page's OCR (one byte range of the item's `_hocr.html`, located with `_hocr_pageindex.json.gz`) and rebuilds the excerpt to include the text before it. This is capped at 10 pages per volume and 80 per search.
 - Each hit has an ID under its year, e.g. `1947-002`. It appears in the CSV and in Copy for AI, so a row in a spreadsheet or an AI summary can be traced back to its source.
 - The **Scan** link opens the page in the Internet Archive viewer with your term highlighted. The two-page view shows the matching page next to its neighbor. `scan 332` is the scan (image) number; below it, `p. 412` is the page number printed in the directory, when the Internet Archive has it.
 - A `≈` before the scan number means the page was estimated (see *Volumes missing from the full-text index* below). The entry may be many pages away.
 - **Cite** copies a citation for the page, e.g. *Polk's Indianapolis City Directory (1945), p. 412, scan 2311. Internet Archive, https://archive.org/details/…/page/leaf2311 (accessed October 23, 2026).* Check the title and publisher against the volume's title page before using it in a nomination.
-- **Export CSV** downloads the currently filtered results with these columns: `hit_id`, `year`, `term`, `snippet`, `context` (about 900 characters around the hit), `full_text` (the whole OCR passage), `scan`, `scan_estimated`, `printed_page`, `source` (search index or OCR text), `link`, `citation`, `title`, `volume`, `identifier`.
+- **Export CSV** downloads the currently filtered results with these columns: `hit_id`, `year`, `term`, `match` (term, variant, or possible), `matched_text`, `snippet`, `context` (about 900 characters around the hit), `full_text` (the whole OCR passage), `scan`, `scan_estimated`, `printed_page`, `source` (search index or OCR text), `link`, `citation`, `title`, `volume`, `identifier`.
 - **Copy for AI** copies the shown results to the clipboard, ready to paste into an AI assistant. See below.
 
 ### 4. Sorting results with an AI assistant
 
 Directory hits are messy: OCR errors, abbreviations, and neighboring entries run together. An AI assistant is good at the first pass of sorting them into a table of who was at an address each year. **Copy for AI** copies the filtered results together with instructions that:
 
-- explain how directory entries and common Polk abbreviations read;
+- mark the matched words with `[[ ]]` and explain how to tell which entry they belong to (in name listings the address ends the entry, so the person is the name before it; in the street section the occupant follows the number);
+- explain OCR variants and possible matches, and common Polk abbreviations;
 - tell the assistant to use only the excerpts, not to fill gaps from elsewhere, and to show the original text when it corrects an OCR error;
 - ask for a table by year (address, names, occupation, household notes, confidence, hit ID, link), followed by the years with no matching entry and any apparent changes;
 - list the volumes that were searched without a hit, and any searches that failed.
