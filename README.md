@@ -98,7 +98,7 @@ Results appear as they come in, grouped by year.
 - A `≈` before the scan number means the page was estimated (see *Volumes missing from the full-text index* below). The entry may be many pages away.
 - **Cite** copies a citation for the page, e.g. *Polk's Indianapolis City Directory (1945), p. 412, scan 2311. Internet Archive, https://archive.org/details/…/page/leaf2311 (accessed October 23, 2026).* Check the title and publisher against the volume's title page before using it in a nomination.
 - **Export CSV** downloads the currently filtered results, one row per passage: when several terms (or a term and its OCR variants) found the same passage, they are merged into one row listing every term and hit ID. Columns: `hit_id`, `also_hit_ids`, `terms`, `year`, `match` (term, variant, or possible), `matched_text`, `flags` (ad, starts_at_match, page_estimated, from_ocr_text), `excerpt_marked` (the context with the match in `[[ ]]`), `snippet`, `context` (about 900 characters around the hit), `full_text` (the whole OCR passage), `scan`, `scan_estimated`, `printed_page`, `source` (search index or OCR text), `link`, `citation`, `title`, `volume`, `identifier`.
-- **Copy for AI** copies the shown results with instructions, ready to paste into an AI assistant. **AI instructions for the CSV** copies only the instructions, to paste alongside the exported CSV file. See below.
+- **Copy for AI** opens a menu: **Results + instructions** copies the shown results with instructions, ready to paste into an AI assistant; **Instructions only** copies just the instructions, to paste alongside the exported CSV file. See below.
 
 ### 4. Sorting results with an AI assistant
 
@@ -114,8 +114,8 @@ The instructions adapt to the search: each term is labelled as an address or a n
 
 Two ways to use it:
 
-- **Paste:** Copy for AI, then paste into the assistant. Best for up to about 20–40 results; for more, filter to a decade and copy one batch at a time. Some free assistants limit message length or stall on long tables.
-- **File:** Export CSV, attach the file to the assistant, then paste **AI instructions for the CSV**. Better for long result sets. The instructions ask the assistant to work through every row and report how many it processed.
+- **Paste:** Copy for AI ▸ Results + instructions, then paste into the assistant. Best for up to about 20–40 results; for more, filter to a decade and copy one batch at a time. Some free assistants limit message length or stall on long tables.
+- **File:** Export CSV, attach the file to the assistant, then paste **Copy for AI ▸ Instructions only**. Better for long result sets. The instructions ask the assistant to work through every row and report how many it processed.
 
 Nothing is sent anywhere by the tool. Treat the result as a finding aid, not a source: open the link on every row you plan to use and confirm it against the scan, and cite the directory, not the AI.
 
