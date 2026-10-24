@@ -47,8 +47,12 @@ select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px
 [hidden]{display:none !important}
 .cite{display:block;margin-top:4px;padding:1px 6px;font-size:11px;color:var(--muted)}
 .approx{color:var(--err)}
-.linkbtn{border:0;background:none;padding:4px 2px;color:var(--accent);text-decoration:underline;font-size:13px}
-.linkbtn:disabled{color:var(--muted);text-decoration:none}
+.menu{position:relative;display:inline-block}
+.menu-list{position:absolute;z-index:20;top:calc(100% + 4px);left:0;width:300px;max-width:calc(100vw - 32px);background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:4px}
+.menu-list button{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:6px;line-height:1.35}
+.menu-list button:hover,.menu-list button:focus-visible{background:var(--bg)}
+.menu-list b{display:block;font-weight:600}
+.menu-list span{display:block;color:var(--muted);font-size:12px;margin-top:2px}
 .ctxnote{margin-top:4px;font-family:-apple-system,"Segoe UI",sans-serif;font-size:11px;color:var(--muted)}
 .opts{margin-top:8px}
 label.chk{display:flex;gap:8px;align-items:flex-start;color:var(--ink);font-size:12.5px;margin:6px 0 0;line-height:1.45}
@@ -190,7 +194,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
         <li>In name listings the address comes last, often glued to a code letter: <code>Chung Paul P pres Bamboo Inn Inc r118 W Ohio</code>. OCR then reads <code>r118</code> as one word, often <code>rll8</code>, which a plain search for 118 misses. <b>OCR-tolerant house numbers</b> catches these and labels them <i>OCR variant</i>. The person at an address is the name <i>before</i> it.</li>
         <li>When a passage starts right at your address, the tool fetches that page's text to add the line before it, so the excerpt shows whose address it is.</li>
         <li>Names are listed surname first: search <code>Chung Paul</code>, not <code>Paul Chung</code>. To follow a business and the places tied to it, put the business and each address on their own lines in one search.</li>
-        <li>For many results, use <b>Export CSV</b>, then attach the file to your AI assistant together with <b>AI instructions for the CSV</b>. Rows found by several terms are merged into one.</li>
+        <li>For many results, use <b>Export CSV</b>, then attach the file to your AI assistant together with <b>Copy for AI ▸ Instructions only</b>. Rows found by several terms are merged into one.</li>
         <li>If an address doesn't turn up in a year, search the neighboring house numbers on the same street. Open the page where they appear and look for your address in the scan: it may be there but misread, or the page may be folded or damaged in the scan.</li>
         <li><b>Copy for AI</b> copies the shown results with instructions for an AI assistant to sort them into a table by year, keeping each hit ID and page link so you can check every row against the scan.</li>
       </ul>
@@ -203,8 +207,13 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
   <div class="tools">
     <input type="text" id="filter" placeholder="Filter results…">
     <button id="btnCsv" disabled>Export CSV</button>
-    <button id="btnAI" disabled title="Copy the results with instructions, to paste into an AI assistant">Copy for AI</button>
-    <button id="btnAIcsv" class="linkbtn" disabled title="Copy only the instructions, to paste alongside the exported CSV file">AI instructions for the CSV</button>
+    <div class="menu">
+      <button id="btnAI" disabled aria-haspopup="menu" aria-expanded="false" aria-controls="aiList">Copy for AI ▾</button>
+      <div class="menu-list" id="aiList" role="menu" hidden>
+        <button role="menuitem" id="aiPaste"><b>Results + instructions</b><span>Paste straight into an AI assistant. Best for up to about 30 results.</span></button>
+        <button role="menuitem" id="aiCsv"><b>Instructions only</b><span>For an exported CSV file: attach the file to the assistant and paste these with it.</span></button>
+      </div>
+    </div>
     <span id="rcount" style="color:var(--muted);font-size:12px"></span>
   </div>
   <div class="tablewrap">
@@ -1115,7 +1124,7 @@ function filtered(){
 }
 function render(){
   const r = filtered();
-  $('#btnCsv').disabled = $('#btnAI').disabled = $('#btnAIcsv').disabled = !results.length;
+  $('#btnCsv').disabled = $('#btnAI').disabled = !results.length;
   $('#rcount').textContent = results.length ? `Showing ${r.length} of ${results.length}` : '';
   if(!r.length){ $('#tbody').innerHTML = `<tr><td colspan="4" class="empty">${results.length ? 'No results match the filter' : 'No results'}</td></tr>`; return; }
   const multiVol = new Set();
@@ -1219,7 +1228,7 @@ $('#btnCsv').onclick = () => {
   a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
   a.download = 'directory_search_' + new Date().toISOString().slice(0,10) + '.csv';
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  status(`Exported ${rows.length} row${rows.length === 1 ? '' : 's'} (one per passage). To sort them with an AI assistant, attach the file and paste <b>AI instructions for the CSV</b>.`, 'ok');
+  status(`Exported ${rows.length} row${rows.length === 1 ? '' : 's'} (one per passage). To sort them with an AI assistant, attach the file and paste <b>Copy for AI ▸ Instructions only</b>.`, 'ok');
 };
 
 /* Instructions for an AI assistant. mode "paste" includes the data; mode "csv" refers to the exported file.
@@ -1300,17 +1309,40 @@ function aiText(rows, mode = 'paste'){
   }
   return L.join('\n');
 }
-$('#btnAI').onclick = async () => {
+/* Copy for AI menu: results + instructions to paste, or instructions only to go with an exported CSV */
+function aiMenu(open){
+  const list = $('#aiList'), btn = $('#btnAI');
+  list.hidden = !open; btn.setAttribute('aria-expanded', String(open));
+  if(open){
+    // keep the menu on screen: shift it left by however much it overflows, but not past the left edge
+    list.style.left = '0px';
+    const r = list.getBoundingClientRect(), over = r.right - (document.documentElement.clientWidth - 8);
+    if(over > 0) list.style.left = -Math.min(over, r.left - 8) + 'px';
+    $('#aiPaste').focus();
+  }
+}
+$('#btnAI').onclick = e => { e.stopPropagation(); aiMenu($('#aiList').hidden); };
+document.addEventListener('click', e => { if(!e.target.closest('.menu')) aiMenu(false); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && !$('#aiList').hidden){ aiMenu(false); $('#btnAI').focus(); } });
+$('#aiList').addEventListener('keydown', e => {
+  if(e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  e.preventDefault();
+  const items = [...$('#aiList').querySelectorAll('button')], i = items.indexOf(document.activeElement);
+  items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus();
+});
+$('#aiPaste').onclick = async () => {
+  aiMenu(false);
   const rows = exportRows();
   const text = aiText(rows);
   const ok = await copyText(text);
   const words = Math.round(text.length / 6 / 100) * 100;
   status(ok ? `Copied ${rows.length} passage${rows.length === 1 ? '' : 's'} with instructions (about ${words.toLocaleString()} words). Paste it into your AI assistant.` +
-      (rows.length > 40 ? ' <span class="approx">More than 40 results: free assistants often stall or cut off long tables. Filter to a decade (type e.g. 192 in Filter results) and copy one batch at a time, or use Export CSV with AI instructions for the CSV.</span>' : '') +
+      (rows.length > 40 ? ' <span class="approx">More than 40 results: free assistants often stall or cut off long tables. Filter to a decade (type e.g. 192 in Filter results) and copy one batch at a time, or use Export CSV with Copy for AI ▸ Instructions only.</span>' : '') +
       ' Verify every fact against the page scan before using it.'
     : 'Copy failed. Use Export CSV instead.', ok ? 'ok' : 'err');
 };
-$('#btnAIcsv').onclick = async () => {
+$('#aiCsv').onclick = async () => {
+  aiMenu(false);
   const rows = exportRows();
   const ok = await copyText(aiText(rows, 'csv'));
   status(ok ? `Copied instructions for a CSV of ${rows.length} row${rows.length === 1 ? '' : 's'}. Attach the exported CSV to your AI assistant and paste these instructions with it. If you changed the filter since exporting, export again so the counts match.`
