@@ -60,7 +60,7 @@ label.chk input{margin-top:2px;flex:none}
 label.chk span{color:var(--muted)}
 label.chk b{color:var(--ink);font-weight:600}
 .badge{display:inline-block;margin-top:3px;padding:0 5px;border-radius:4px;font-size:11px;border:1px solid var(--line);color:var(--muted)}
-.badge.possible{color:var(--err);border-color:currentColor}
+.badge.street{color:var(--ok);border-color:currentColor}
 .badge.ad{color:var(--accent);border-color:currentColor}
 tr.yrow td{background:var(--bg);font-weight:600;font-size:13px;padding:6px 8px}
 tr.yrow td span{color:var(--muted);font-weight:400;font-size:11px;margin-left:6px}
@@ -173,7 +173,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
     <textarea id="terms" placeholder="1234 N Meridian&#10;Walker Madam C J&#10;Crispus Attucks"></textarea>
     <div class="opts">
       <label class="chk"><input type="checkbox" id="optTolerant"> <span><b>OCR-tolerant house numbers.</b> For addresses like <code>118 W Ohio</code>, also find the number as OCR often reads it in listings: <code>rll8</code>, <code>h118</code>, <code>1l8</code>. Adds one request per address and volume.</span></label>
-      <label class="chk"><input type="checkbox" id="optSweep"> <span><b>Street sweep.</b> Also search the whole street and keep numbers one character off after correcting OCR (<code>rlli8 W O‘hio</code>), marked <i>possible</i>. Slower, and some will be other addresses.</span></label>
+      <label class="chk"><input type="checkbox" id="optStreetdir"> <span><b>Street directory page.</b> Also find the page of the street directory (listed by street and house number) where this address falls, and show the lines around it, even when the number itself is misread. Adds a few requests per volume.</span></label>
     </div>
     <div class="row">
       <button class="primary" id="btnRun">Search</button>
@@ -573,9 +573,10 @@ function readPageIndex(raw, text){
   for(let i = 1; i < pairs.length; i++) if(pairs[i][0] < pairs[i - 1][0]) return null;
   const last = pairs[pairs.length - 1][1];
   const bytes = new TextEncoder().encode(text).length;
-  const near = n => Math.abs(last - n) <= Math.max(4, n * 0.001);
-  if(near(text.length) || last <= text.length && bytes === text.length) return {starts:pairs.map(p => p[0]), ends:pairs.map(p => p[1])};
-  if(!near(bytes)) return null;
+  // offsets count characters or UTF-8 bytes: use whichever the last offset is closer to
+  const dc = Math.abs(last - text.length), db = Math.abs(last - bytes), tol = n => Math.max(4, n * 0.001);
+  if(dc <= db && dc <= tol(text.length)) return {starts:pairs.map(p => p[0]), ends:pairs.map(p => p[1])};
+  if(db > tol(bytes)) return null;
   // byte offsets -> character offsets in one pass
   const want = [...new Set(pairs.flat())].sort((a, b) => a - b), map = new Map();
   let b = 0, w = 0;
@@ -633,12 +634,10 @@ const wordsOf = s => s.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
    In directory listings the address follows a one-letter code glued to the number ("r118 W Ohio" =
    resides at 118), and OCR often reads 1 as l, 0 as O, 8 as B. The search engine then indexes "rll8",
    which a search for 118 never finds. For a term that starts with a house number followed by a street,
-   two extra kinds of match are made:
-     variant   the number in a misread or prefixed form (rll8, h118, 1l8, x118), right before the street
-     possible  (street sweep only) the number off by one character after un-confusing it (rlli8 -> 1118)
-   Street names tolerate stray apostrophes and periods inside words (O‘hio, N. Meridian). */
-const OPT_KEY = 'cds_opts_v1';
-const opts = Object.assign({tolerant:true, sweep:false}, store.get(OPT_KEY, {}));
+   variant matches are made: the number in a misread or prefixed form (rll8, h118, 1l8, x118), right
+   before the street. Street names tolerate stray apostrophes and periods inside words (O‘hio, N. Meridian). */
+const OPT_KEY = 'cds_opts_v2';
+const opts = Object.assign({tolerant:true, streetdir:false}, store.get(OPT_KEY, {}));
 function parseAddress(query){
   const w = wordsOf(query);
   if(w.length < 2 || !/^\d{1,5}$/.test(w[0]) || w.slice(1).some(x => /^\d+$/.test(x) && !/^\d+(st|nd|rd|th)$/i.test(x))) return null;
@@ -675,27 +674,11 @@ function toDigits(s){
   }
   return real ? out : null;
 }
-function within1(a, b){   // edit distance exactly 1
-  if(a === b || Math.abs(a.length - b.length) > 1) return false;
-  let i = 0, j = 0, d = 0;
-  while(i < a.length && j < b.length){
-    if(a[i] === b[j]){ i++; j++; continue; }
-    if(++d > 1) return false;
-    if(a.length > b.length) i++; else if(b.length > a.length) j++; else { i++; j++; }
-  }
-  return d + (a.length - i) + (b.length - j) === 1;
-}
-function classifyNumber(token, num, fuzzy){
+function classifyNumber(token, num){
   const cands = [token];
   if(token.length > 1 && /^[rhxtbRHXTB]/.test(token)) cands.push(token.slice(1));
-  let best = null;
-  for(const c of cands){
-    const d = toDigits(c);
-    if(!d) continue;
-    if(d === num) return token === num ? 'exact' : 'variant';
-    if(fuzzy && num.length >= 2 && within1(d, num)) best = 'possible';
-  }
-  return best;
+  for(const c of cands) if(toDigits(c) === num) return token === num ? 'exact' : 'variant';
+  return null;
 }
 const APOS = "['‘’`´.]?";
 function streetRegex(street){
@@ -703,7 +686,7 @@ function streetRegex(street){
   return new RegExp('(?<![\\p{L}\\p{N}])' + street.map(word).join('[^\\p{L}\\p{N}]+') + '(?![\\p{L}\\p{N}])', 'giu');
 }
 // every "<number token> <street>" in s whose number matches addr; returns [{start, end, token, kind}]
-function findAddress(s, addr, fuzzy, re){
+function findAddress(s, addr, re){
   re = re || streetRegex(addr.street);
   re.lastIndex = 0;
   const out = [];
@@ -712,11 +695,76 @@ function findAddress(s, addr, fuzzy, re){
     const before = s.slice(Math.max(0, m.index - 24), m.index);
     const t = before.match(/([\p{L}\p{N}|!]+)([^\p{L}\p{N}|!]{0,3})$/u);
     if(!t) continue;
-    const kind = classifyNumber(t[1], addr.num, fuzzy);
+    const kind = classifyNumber(t[1], addr.num);
     if(kind) out.push({start: m.index - t[0].length, end: m.index + m[0].length, token: t[1], kind});
   }
   return out;
 }
+/* ---------- street directory ----------
+   The street (reverse) directory lists each street under a heading such as "OHIO W—From 200 N Meridian
+   west…" and continued pages "OHIO W—Contd", with occupants by house number. A misread or split number
+   ("1 18" for 118) can't be searched, but the page that holds it can be found: locate the street's
+   heading pages, read them, and place the number among the house numbers in order. */
+const DIRS = /^(n|s|e|w|ne|nw|se|sw|north|south|east|west)$/i;
+function headingWords(street){ return DIRS.test(street[0]) && street.length > 1 ? [...street.slice(1), street[0]] : street.slice(); }
+function headingRegex(street){
+  const word = w => [...w].map(reEsc).join(APOS);
+  // heading words, then a dash and From/Contd (the street guide's "Ohio W 1 to 299" and running text have neither)
+  return new RegExp('(?<![\\p{L}\\p{N}])' + headingWords(street).map(word).join('[^\\p{L}\\p{N}]+') +
+    '(?![\\p{L}\\p{N}])[^\\p{L}\\p{N}]{0,6}(from|commencing|beginning|contd|cont|continued)\\b', 'giu');
+}
+/* Where num falls among the house numbers of a street-directory page, reading from `from`.
+   Returns {pos, len, exact} for the number itself (also when OCR split it, "1 18") or the nearest lower
+   house number when the page brackets it, {below} when every house number here is lower (read on),
+   {above} when every one is higher, or null when the page has no plausible house numbers. */
+function placeNumber(P, from, num){
+  const N = +num, toks = [];
+  const re = /(?<![\p{L}\p{N}])\d{1,5}(?!\p{N})/gu;
+  re.lastIndex = from;
+  let m;
+  while((m = re.exec(P))) toks.push({v:+m[0], s:m.index, e:m.index + m[0].length});
+  for(let i = 0; i + 1 < toks.length; i++){
+    const a = toks[i], b = toks[i + 1];
+    if(b.s - a.e === 1 && +(String(a.v) + P.slice(b.s, b.e)) === N) return {pos:a.s, len:b.e - a.s, exact:true};
+  }
+  const ex = toks.find(t => t.v === N);
+  if(ex) return {pos:ex.s, len:ex.e - ex.s, exact:true};
+  const hs = toks.filter(t => t.v >= Math.floor(N / 2) && t.v <= N * 2 + 100);
+  if(!hs.length) return null;
+  const below = hs.filter(t => t.v < N), above = hs.filter(t => t.v > N);
+  if(below.length && above.length){ const t = below[below.length - 1]; return {pos:t.s, len:t.e - t.s, exact:false}; }
+  return below.length ? {below:true} : {above:true, pos:above[0].s, len:above[0].e - above[0].s};
+}
+/* Scan heading pages in order (pageText(leaf) -> text) and build one result for the address. */
+async function scanStreetPages(leafs, pageText, addr, make){
+  const hre = headingRegex(addr.street);
+  let prev = null;
+  for(const leaf of leafs){
+    const P = await pageText(leaf);
+    if(!P) continue;
+    hre.lastIndex = 0;
+    const h = hre.exec(P);
+    const r = placeNumber(P, h ? h.index : 0, addr.num);
+    if(!r) continue;
+    if(r.below){ prev = {leaf, P}; continue; }
+    if(r.above && prev) return make(prev.leaf, prev.P, prev.P.length - 1, 0, false, true);
+    return make(leaf, P, r.pos, r.len, r.exact, false);
+  }
+  return prev ? make(prev.leaf, prev.P, prev.P.length - 1, 0, false, true) : null;
+}
+function streetHit(base, leaf, P, pos, len, exact, num){
+  const win = (back, fwd, mark) => {
+    const a = Math.max(0, pos - back), b = Math.min(P.length, pos + Math.max(len, 1) + fwd);
+    let w = P.slice(a, b);
+    if(mark && exact) w = w.slice(0, pos - a) + '{{{' + w.slice(pos - a, pos - a + len) + '}}}' + w.slice(pos - a + len);
+    return (a > 0 ? '… ' : '') + w.trim() + (b < P.length ? ' …' : '');
+  };
+  return {...base, page: leaf, linkBy:'leaf', printed:'', match:'street', streetExact: exact,
+    matched: exact ? P.slice(pos, pos + len).replace(/\s+/, ' ') : '', vq: num,
+    text: win(220, 260, true), full: win(900, 900, true), ctx: win(450, 450).replace(/\s+/g, ' '),
+    ctxMarked: win(450, 450, true).replace(/\s+/g, ' '), extended: true, _para: 'street' + leaf};
+}
+
 /* A short passage of mostly capital letters that starts at the match is usually part of an advertisement
    (margin ads, boxed ads) or a heading: OCR splits ads into fragments, and the company name in display
    type is often missing. Flagged, never hidden. */
@@ -894,9 +942,26 @@ async function searchLocal(item, meta, term){
     out.push(hit(L, snippet, context(L, m.index, m.index + m[0].length), b, {ad: lineAd(m.index, m.index + m[0].length), _para: 'line' + (text.lastIndexOf('\n', m.index - 1) + 1)}));
   }
   // OCR-tolerant addresses: every "<number-ish> <street>" in the text
-  const addr = (opts.tolerant || opts.sweep) ? parseAddress(query) : null;
-  if(addr){
-    const found = findAddress(text, addr, opts.sweep).filter(f => f.kind !== 'exact');
+  const addr = parseAddress(query);
+  if(addr && opts.streetdir){
+    // heading pages in the downloaded text, then the page that holds the number
+    const hre = headingRegex(addr.street), heads = [];
+    let hm;
+    while((hm = hre.exec(text)) && heads.length < 12) heads.push(locate(hm.index));
+    const pagesL = [...new Map(heads.map(L => [L.pa, L])).values()];
+    if(pagesL.length){
+      const first = pagesL[0], seq = [first];
+      for(let at = first.pb + 1, n = 0; n < 6 && at < text.length; n++){ const L = locate(at); seq.push(L); at = L.pb + 1; }
+      const byPa = new Map(seq.map(L => [L.pa, L]));
+      const h = await scanStreetPages([...byPa.keys()], async pa => text.slice(pa, byPa.get(pa).pb), addr,
+        (pa, P, pos, len, ex) => { const L = byPa.get(pa);
+          return {...streetHit({year:item.year, id:item.id, title:item.title || item.id, volume:item.volume || '', term}, L.page, P, pos, len, ex, addr.num),
+                  linkBy:L.linkBy, printed:L.pr, approx:L.approx, local:true}; });
+      if(h) out.push(h);
+    }
+  }
+  if(addr && opts.tolerant){
+    const found = findAddress(text, addr).filter(f => f.kind !== 'exact');
     for(const f of found){
       if(out.length >= 400) break;
       if(out.some(o => o.page != null && Math.abs((o._s ?? -1e9) - f.start) < 5)) continue;
@@ -985,28 +1050,51 @@ async function searchInside(item, term){
   /* OCR-tolerant addresses. Two quoted phrases in one query must BOTH appear, so variants can't ride along
      with the main query; instead one extra unquoted query lists the variant numbers (unquoted words are
      OR'ed), and the street is checked here. The bare number itself is left out: a common number like
-     118 matches thousands of passages and times out. Street sweep adds a query for the street alone. */
-  const addr = (opts.tolerant || opts.sweep) ? parseAddress(query) : null;
-  if(addr){
+     118 matches thousands of passages and times out. */
+  const addr = parseAddress(query);
+  if(addr && opts.tolerant){
     const seen = new Set(hits.map(h => h.page + '|' + norm(h.full || h.text)));
     const re = streetRegex(addr.street);
-    const take = (d, fuzzy) => {
+    try{
+      const d = await inside(variantTokens(addr.num).join(' '));
       for(const mt of (d && d.matches) || []){
         const raw = stripMarks(mt.text || '');
-        const found = findAddress(raw, addr, fuzzy, re).filter(f => f.kind !== 'exact');
+        const found = findAddress(raw, addr, re).filter(f => f.kind !== 'exact');
         if(!found.length) continue;
         const key = pageOf(mt) + '|' + norm(raw);
         if(seen.has(key)) continue;
         seen.add(key);
-        const kind = found.some(f => f.kind === 'variant') ? 'variant' : 'possible';
-        const f0 = found.find(f => f.kind === kind);
-        hits.push(mkHit(mt, markSpans(raw, found), {match:kind, matched:raw.slice(f0.start, f0.end).replace(/\s+/g, ' ')}));
+        hits.push(mkHit(mt, markSpans(raw, found), {match:'variant', matched:raw.slice(found[0].start, found[0].end).replace(/\s+/g, ' ')}));
       }
-    };
-    const extra = [];
-    if(opts.tolerant) extra.push(inside(variantTokens(addr.num).join(' ')).then(d => take(d, false)).catch(e => { if(abortCtl && abortCtl.signal.aborted) throw e; }));
-    if(opts.sweep) extra.push(inside('"' + addr.street.join(' ') + '"').then(d => take(d, true)).catch(e => { if(abortCtl && abortCtl.signal.aborted) throw e; }));
-    await Promise.all(extra);
+    }catch(e){ if(abortCtl && abortCtl.signal.aborted) throw e; }
+  }
+  // street directory: the heading pages for this street, then the page that holds the house number
+  if(addr && opts.streetdir){
+    try{
+      const d = await inside('"' + headingWords(addr.street).join(' ') + '"');
+      const hre = headingRegex(addr.street);
+      const heads = [];
+      for(const mt of (d && d.matches) || []){
+        const raw = stripMarks(mt.text || '');
+        hre.lastIndex = 0;
+        const m = hre.exec(raw);
+        if(m && m.index <= 3) heads.push({leaf: pageOf(mt), start: /^(from|commencing|beginning)$/i.test(m[1])});
+      }
+      if(heads.length){
+        heads.sort((a, b) => a.leaf - b.leaf);
+        const first = (heads.find(h => h.start) || heads[0]).leaf;
+        const last = Math.max(...heads.map(h => h.leaf));
+        const leafs = [];
+        for(let l = first; l <= Math.max(last, first) + 1 && leafs.length < 8; l++) leafs.push(l);
+        const P = async leaf => { const t = await pageTexts(item, meta, leaf, () => true); return t.text || null; };
+        const h = await scanStreetPages(leafs, P, addr, (leaf, txt, pos, len, ex) =>
+          streetHit({year:item.year, id:item.id, title:item.title || item.id, volume:item.volume || '', term}, leaf, txt, pos, len, ex, addr.num));
+        if(h) hits.push(h);
+        else hits.push({year:item.year, id:item.id, title:item.title || item.id, volume:item.volume || '', term, page:first, linkBy:'leaf', printed:'',
+          match:'street', streetExact:false, matched:'', vq:headingWords(addr.street).join(' '), text:'Street directory for this street starts on this page; its text could not be read. Turn pages to find the number.',
+          ctx:'', extended:true, ctxNote:'', _para:'street' + first});
+      }
+    }catch(e){ if(abortCtl && abortCtl.signal.aborted) throw e; }
   }
 
   if(hits.length){
@@ -1020,6 +1108,7 @@ async function searchInside(item, term){
     // is one small download, capped per volume and per search so wide searches stay light
     let budget = 10;
     for(const h of hits){
+      if(h.match === 'street') continue;
       const raw = String(h.full || h.text), at = raw.search(/\{\{\{|<IA_FTS_MATCH>/i);
       if(at < 0 || stripMarks(raw.slice(0, at)).trim().length >= 25) continue;
       if(budget-- <= 0 || ctxBudget.left-- <= 0) break;
@@ -1036,7 +1125,7 @@ function pageUrl(r){
   const p = (r.page != null) ? `/page/${(r.linkBy || (r.local ? 'n' : 'leaf'))}${r.page}` : '';
   // keep quoted phrases quoted in the viewer's search box (curly/CJK quotes become straight ones)
   // (for an OCR-variant match, highlight the variant as printed, e.g. rll8 W Ohio)
-  const q = (r.match && r.matched ? r.matched : r.term).replace(/[“”「」]/g, '"').replace(/\s+/g, ' ').trim();
+  const q = (r.vq || (r.match && r.matched ? r.matched : r.term)).replace(/[“”「」]/g, '"').replace(/\s+/g, ' ').trim();
   return `${base}${p}/mode/2up?q=${encodeURIComponent(q)}`;
 }
 
@@ -1097,9 +1186,9 @@ $('#btnRun').onclick = async () => {
   status(msg, errors.length ? '' : 'ok');
 };
 $('#optTolerant').checked = opts.tolerant;
-$('#optSweep').checked = opts.sweep;
-['optTolerant', 'optSweep'].forEach(id => $('#' + id).addEventListener('change', () => {
-  opts.tolerant = $('#optTolerant').checked; opts.sweep = $('#optSweep').checked; store.set(OPT_KEY, opts);
+$('#optStreetdir').checked = opts.streetdir;
+['optTolerant', 'optStreetdir'].forEach(id => $('#' + id).addEventListener('change', () => {
+  opts.tolerant = $('#optTolerant').checked; opts.streetdir = $('#optStreetdir').checked; store.set(OPT_KEY, opts);
 }));
 $('#btnStop').onclick = () => {
   stopFlag = true;
@@ -1145,7 +1234,7 @@ function render(){
     html += `
     <tr>
       <td>${x.year ?? '?'}${vol}<div class="id" title="Hit ID, also in the CSV and Copy for AI">${esc(x.hid || '')}</div></td>
-      <td>${esc(x.term)}${x.match ? `<div><span class="badge ${x.match}" title="${x.match === 'possible' ? 'Number is one character off after correcting OCR; may be a different address' : 'Found as an OCR variant of the house number'}">${x.match === 'possible' ? 'possible' : 'OCR variant'}: ${esc(x.matched || '')}</span></div>` : ''}</td>
+      <td>${esc(x.term)}${x.match === 'variant' ? `<div><span class="badge variant" title="Found as an OCR variant of the house number">OCR variant: ${esc(x.matched || '')}</span></div>` : ''}${x.match === 'street' ? `<div><span class="badge street" title="${x.streetExact ? 'From the street directory, where occupants are listed by house number' : 'From the street directory: the number itself was not found (misread or missing), so the nearest house number is shown'}">street directory${x.streetExact ? '' : ' (nearest)'}</span></div>` : ''}</td>
       <td class="snip${x.full ? ' more' : ''}" data-r="${ri}">${snippetHTML(x._open ? x.full : x.text)}${x.full ? `<span class="tog">${x._open ? 'Collapse' : 'Show full text'}</span>` : ''}${x.ctxNote ? `<div class="ctxnote" title="${esc(x.ctxNote)}">Starts at the match: ${esc(x.ctxNote)}. Open the scan to see the lines before it; on directory pages this is often a margin advertisement or a heading.</div>` : ''}</td>
       <td><a href="${pageUrl(x)}" target="_blank" rel="noopener"${x.approx ? ' class="approx" title="Estimated from the hit\'s position in the OCR text; the entry may be many pages away"' : ''}>${x.approx ? '≈' : ''}scan ${x.page ?? '?'}</a>` +
         (x.printed ? `<div class="id" title="Page number printed in the directory">p. ${esc(x.printed)}</div>` : '') +
@@ -1257,7 +1346,7 @@ function aiText(rows, mode = 'paste'){
   p('');
   p('HOW THE DATA IS MARKED');
   p('- Each data row is one passage. The matched words are wrapped in [[ ]]. The excerpt also contains neighboring entries, so first decide which entry the match belongs to. When several terms found the same passage, the row lists them all, and its hit_id lists every hit ID.');
-  p('- match: "term" = found as typed (a row found by several terms can list several kinds). "variant" = found through a known OCR misreading of the house number (rll8 for r118). "possible" = house number one character off after correcting OCR; it may be a different address (for 118, it could be 1118).');
+  p('- match: "term" = found as typed (a row found by several terms can list several kinds). "variant" = found through a known OCR misreading of the house number (rll8 for r118). "street" = an excerpt from the street (reverse) directory page where this address falls: occupants follow their house numbers, and the number may be split or misread ("1 18" for 118). If the matched number is not marked, it was not found and the excerpt shows the nearest house numbers; read the scan.');
   p('- flags: "ad" = a short, mostly capital-letter fragment that starts at the match, probably part of an advertisement or a heading. "starts_at_match" = nothing comes before the match in the excerpt, so the name the address belongs to may be missing. "page_estimated" = the page link is approximate. "from_ocr_text" = found in the downloaded OCR text of a volume the search index does not cover.');
   p('');
   p('HOW TO READ DIRECTORY TEXT');
@@ -1275,7 +1364,7 @@ function aiText(rows, mode = 'paste'){
   p('1. Use only these excerpts. No outside knowledge, no guessing to fill gaps, and do not merge different people because their names look alike.');
   p('2. When you correct OCR, give your reading with the original in brackets: Bachelor [BACinXOB].');
   p('3. Every row you output keeps its hit_id and link, so each fact can be checked on the scan.');
-  p('4. Give a confidence (high, medium, low) and a short reason when it is not high. Rows that are variant or possible matches, ads, or starts_at_match are at most medium until checked on the scan.');
+  p('4. Give a confidence (high, medium, low) and a short reason when it is not high. Rows that are variant matches, street-directory rows without a marked number, ads, or starts_at_match are at most medium until checked on the scan.');
   p('5. No hit is not proof of absence: the page may be misread, folded, damaged, or tightly bound in the scan.');
   if(mode === 'csv') p(`6. Work through every row of the file (${rows.length} rows). At the end, state how many rows you processed out of ${rows.length}; if you could not read them all, say which hit_ids you skipped.`);
   p('');
