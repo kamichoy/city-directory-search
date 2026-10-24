@@ -516,7 +516,7 @@ $('#btnAdd').onclick = async () => {
 
 /* ---------- search inside ---------- */
 async function getMeta(id){
-  if(metaCache[id] && metaCache[id].v === 4) return metaCache[id];
+  if(metaCache[id] && metaCache[id].v === 5) return metaCache[id];
   const m = await getJSON('https://archive.org/metadata/' + encodeURIComponent(id));
   if(!m || !m.server) throw new Error('Item metadata not found');
   const files = (m.files || []).map(f => f.name);
@@ -529,8 +529,8 @@ async function getMeta(id){
   // page-aware OCR text: search text, the character range of each page in it, and each page's scan leaf
   const st = pick('_hocr_searchtext.txt.gz'), pi = pick('_hocr_pageindex.json.gz'), pn = pick('_page_numbers.json');
   const pages = parseInt(first(m.metadata && m.metadata.imagecount)) || null;
-  const hocr = pick('_hocr.html');
-  const meta = {v:4, server: m.server, dir: m.dir, doc, txt, st, pi, pn, hocr, pages};
+  const djvuxml = pick('_djvu.xml');   // read-aloud page text needs it
+  const meta = {v:5, server: m.server, dir: m.dir, doc, txt, st, pi, pn, djvuxml, pages};
   metaCache[id] = meta; store.set(LS_META, metaCache);
   return meta;
 }
@@ -728,46 +728,67 @@ function markSpans(s, spans){
 }
 
 /* ---------- page text for context ----------
-   An Internet Archive search result is one OCR paragraph. When that paragraph begins at the address,
-   the name it belongs to sits at the end of the previous paragraph and is lost. The page index gives
-   each page's byte range in the item's _hocr.html, so the page's full OCR can be fetched on its own. */
-const idxCache = new Map(), pageTextCache = new Map();
-function loadRawIndex(item, meta){
-  if(!meta.pi) return Promise.resolve(null);
-  if(!idxCache.has(item.id)) idxCache.set(item.id, fetchText(dlURL(item.id, meta.pi)).then(t => JSON.parse(t)).catch(() => null));
-  return idxCache.get(item.id);
+   An Internet Archive search result is one OCR paragraph. When an entry wraps, its second line (often the
+   address) becomes a paragraph of its own, and the name it belongs to is lost. Two ways to get the page:
+   1. The book viewer's read-aloud endpoint returns one page's OCR as a script (br.ttsStartCB([...])), so
+      it loads like JSONP without cross-site restrictions. Its page number is the image index (scan leaf - 1
+      for most books; taken from _page_numbers.json when available). Requests run one at a time because
+      the callback name is fixed.
+   2. If that fails, the item's whole OCR text (_hocr_searchtext.txt.gz, about 10 MB, cached per volume)
+      is downloaded and cut to the page with _hocr_pageindex.json.gz. */
+const pageTextCache = new Map();
+let ttsChain = Promise.resolve();
+function ttsPage(url){
+  const run = () => new Promise(resolve => {
+    const s = document.createElement('script'), prev = window.br;
+    let done = false, t;
+    const finish = v => { if(done) return; done = true; clearTimeout(t); s.remove(); window.br = prev; resolve(v); };
+    window.br = {ttsStartCB: data => finish(data)};
+    t = setTimeout(() => finish(null), 20000);
+    s.onerror = () => finish(null);
+    s.onload = () => setTimeout(() => finish(null), 0);   // loaded but never called back
+    s.src = url;
+    document.head.appendChild(s);
+  });
+  const p = ttsChain.then(run);
+  ttsChain = p.catch(() => null);
+  return p;
 }
-async function pageText(item, meta, leaf){
+async function ttsText(item, meta, index){
+  if(!meta.djvuxml || index < 0) return null;
+  const data = await ttsPage(`https://${meta.server}/BookReader/BookReaderGetTextWrapper.php?path=${encodeURIComponent(meta.dir + '/' + meta.djvuxml)}&page=${index}`);
+  if(!Array.isArray(data)) return null;
+  const text = data.map(b => Array.isArray(b) ? b.filter(x => typeof x === 'string').join(' ') : '').filter(Boolean).join('\n').trim();
+  return text || null;
+}
+// candidate page texts for a scan leaf, best first: read-aloud for the expected image and its neighbours,
+// then the page cut from the whole OCR text. Each resolves to {text} or {fail}.
+async function pageTexts(item, meta, leaf, accept){
   const key = item.id + '#' + leaf;
   if(pageTextCache.has(key)) return pageTextCache.get(key);
-  // resolves to {text} or {fail: reason}; reasons are logged as [cds] in the browser console
-  const fail = reason => { console.warn('[cds] page text unavailable for', item.id, 'scan', leaf + ':', reason); return {fail: reason}; };
   const p = (async () => {
-    if(!meta.hocr) return fail('item has no _hocr.html');
-    if(!meta.pi) return fail('item has no page index');
-    if(!meta.pn) return fail('item has no _page_numbers.json');
-    const [idx, pn] = await Promise.all([loadRawIndex(item, meta), loadPageNumbers(item, meta)]);
-    if(!idx) return fail('page index could not be read');
-    if(!pn) return fail('page numbers could not be read');
-    const i = pn.leafs.indexOf(leaf);
-    const e = idx[i];
-    if(i < 0) return fail('scan not in page numbers');
-    if(!Array.isArray(e) || e.length < 4 || !(e[3] > e[2])) return fail('page index has no hOCR range');
-    const ctl = new AbortController();
-    let r;
-    try{
-      r = await fetch(`https://${meta.server}${meta.dir}/${encodeURIComponent(meta.hocr)}`,
-        {headers:{Range:`bytes=${e[2]}-${e[3] - 1}`}, signal: ctl.signal});
-    }catch(err){ return fail('download blocked (' + err.message + ')'); }
-    if(r.status !== 206){ ctl.abort(); return fail('server ignored the byte range (HTTP ' + r.status + ')'); }   // never download the whole hOCR file
-    const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
-    const pars = [...doc.querySelectorAll('.ocr_par')];
-    const lineText = el => [...el.querySelectorAll('.ocrx_word')].map(w => w.textContent.trim()).filter(Boolean).join(' ');
-    const blocks = pars.length ? pars.map(pp => [...pp.querySelectorAll('.ocr_line,.ocrx_line,.ocr_caption,.ocr_header,.ocr_textfloat')].map(lineText).join('\n'))
-                               : [...doc.querySelectorAll('.ocr_line,.ocrx_line')].map(lineText);
-    const text = blocks.join('\n').trim();
-    return text ? {text} : fail('page OCR is empty');
-  })().catch(err => fail(err.message));
+    const pn = await loadPageNumbers(item, meta);
+    const i = pn ? pn.leafs.indexOf(leaf) : -1;
+    const base = i >= 0 ? i : leaf - 1;
+    for(const idx of [base, base + 1, base - 1]){
+      const t = await ttsText(item, meta, idx).catch(() => null);
+      if(t && accept(t)) return {text: t};
+    }
+    if(meta.st && meta.pi){
+      try{
+        const d = await loadText(item, meta);
+        if(d.leafs){
+          const j = d.leafs.indexOf(leaf);
+          if(j >= 0){
+            const t = d.text.slice(d.starts[j], d.ends ? d.ends[j] : d.starts[j + 1]).trim();
+            if(t && accept(t)) return {text: t};
+          }
+        }
+      }catch(e){}
+    }
+    console.warn('[cds] page text unavailable for', item.id, 'scan', leaf);
+    return {fail: meta.djvuxml ? 'could not load the page text' : 'item has no page text files'};
+  })();
   pageTextCache.set(key, p);
   return p;
 }
@@ -778,19 +799,21 @@ async function extendContext(item, meta, h){
   if(lead.length >= 40) return;
   // only flag address hits that really start at the match (for a name or business, starting there is normal)
   const note = msg => { if(lead.length < 8 && parseAddress(parseTerm(h.term).query)) h.ctxNote = msg; };
-  const pt = await pageText(item, meta, h.page);
-  if(!pt.text){ note('page text unavailable: ' + pt.fail); return; }
-  const P = pt.text;
   const R = stripMarks(raw);
   const ns = R.replace(/\s+/g, '');
-  let found = null;
-  for(const n of [40, 20]){
-    const probe = ns.slice(0, n);
-    if(probe.length < 8) break;
-    const m = new RegExp([...probe].map(reEsc).join('\\s*')).exec(P);
-    if(m){ found = m.index; break; }
-  }
-  if(found == null){ note('passage not found in the page text'); console.warn('[cds] passage not found on page', item.id, h.page); return; }
+  // match the passage's first 40 characters (or all of it, if shorter): short probes like
+  // "Agt, 118 W Ohio" also occur on neighbouring pages and would place the hit on the wrong page
+  const probe = ns.slice(0, 40);
+  const locate = P => {
+    if(probe.length < 12) return null;
+    const m = new RegExp([...probe].map(reEsc).join('\\s*'), 'i').exec(P);
+    return m ? m.index : null;
+  };
+  const pt = await pageTexts(item, meta, h.page, P => locate(P) != null);
+  if(!pt.text){ note('page text unavailable: ' + pt.fail); return; }
+  const P = pt.text;
+  const found = locate(P);
+  if(found == null){ note('passage not found in the page text'); return; }
   // the hit's position in P: skip as many non-space characters as precede the first highlight in R
   let k = stripMarks(raw.slice(0, raw.search(/\{\{\{|<IA_FTS_MATCH>/i))).replace(/\s+/g, '').length, pos = found;
   while(k > 0 && pos < P.length){ if(!/\s/.test(P[pos])) k--; pos++; }
