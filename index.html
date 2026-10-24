@@ -136,7 +136,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
         <li>Filter by title, not subject. Subjects are inconsistent, and many directories are tagged only <code>genealogy</code>.</li>
         <li>A query loads at most 1,000 volumes, so filter large collections first.</li>
         <li>Choosing a collection, finding a city, or loading a query replaces the list below. To combine sources, use <b>Add to list</b> for individual volumes.</li>
-        <li>Know a collection that should be in the menu? <a href="https://github.com/kamichoy/city-directory-search/issues/new?title=Collection%20suggestion" target="_blank" rel="noopener">Suggest it on GitHub</a>.</li>
+        <li>Know a collection that should be in the menu? <a class="report" href="https://docs.google.com/forms/d/e/1FAIpQLSeRDOJSyPZGCEDHtHJRbXHww4__jtgctgO_atAKSTtwa0ASIA/viewform" target="_blank" rel="noopener">Suggest it here</a> (a short form, no sign-in needed).</li>
       </ul>
     </details>
     <label>Add manually (identifiers or archive.org links, one per line)</label>
@@ -231,7 +231,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
   Directory scans and OCR text are served by the <a href="https://archive.org" target="_blank" rel="noopener">Internet Archive</a> and belong to the libraries and archives that contributed them. This tool is not affiliated with the Internet Archive or any contributing library. OCR text contains errors, and pages that were folded, damaged, or tightly bound in the scan may have no text at all, so verify every result against the page scan and treat a missing result as unconfirmed, not absent.
   <p style="margin:8px 0 0">Privacy: this tool collects nothing. Your collections, selections, and search terms are saved only in your own browser, and searches go straight from your browser to the Internet Archive.</p>
   <p style="margin:8px 0 0">Disclaimer: This is a personal project, made for convenience only.</p>
-  <p style="margin:2px 0 0">Built by Kami Cai · <a href="https://kami-cai.com" target="_blank" rel="noopener">kami-cai.com</a> · Source on <a href="https://github.com/kamichoy/city-directory-search" target="_blank" rel="noopener">GitHub</a> · <a href="https://github.com/kamichoy/city-directory-search/issues/new" target="_blank" rel="noopener">Report a problem or suggest a collection</a></p>
+  <p style="margin:2px 0 0">Built by Kami Cai · <a href="https://kami-cai.com" target="_blank" rel="noopener">kami-cai.com</a> · Source on <a href="https://github.com/kamichoy/city-directory-search" target="_blank" rel="noopener">GitHub</a> · <a class="report" href="https://docs.google.com/forms/d/e/1FAIpQLSeRDOJSyPZGCEDHtHJRbXHww4__jtgctgO_atAKSTtwa0ASIA/viewform" target="_blank" rel="noopener">Report a problem or suggest a collection</a></p>
 </footer>
 
 <script src="collections.js"></script>
@@ -1487,6 +1487,37 @@ $('#aiCsv').onclick = async () => {
   status(ok ? `Copied instructions for a CSV of ${rows.length} row${rows.length === 1 ? '' : 's'}. Attach the exported CSV to your AI assistant and paste these instructions with it. If you changed the filter since exporting, export again so the counts match.`
             : 'Copy failed.', ok ? 'ok' : 'err');
 };
+
+/* ---------- feedback form ----------
+   "Report a problem" opens a Google Form (no sign-in). The link is filled in at click time with what the
+   person was looking at, so they only have to say what went wrong. Entry IDs come from the form's
+   pre-filled link. */
+const FEEDBACK = {form: 'https://docs.google.com/forms/d/e/1FAIpQLSeRDOJSyPZGCEDHtHJRbXHww4__jtgctgO_atAKSTtwa0ASIA/viewform',
+  collection: 'entry.1064643660', years: 'entry.198304308', terms: 'entry.1150367019', page: 'entry.1706111742'};
+function yearRanges(ys){
+  ys = [...new Set(ys.filter(Boolean))].sort((a, b) => a - b);
+  const out = [];
+  for(let i = 0; i < ys.length; i++){
+    let j = i;
+    while(j + 1 < ys.length && ys[j + 1] === ys[j] + 1) j++;
+    out.push(j > i ? `${ys[i]}\u2013${ys[j]}` : String(ys[i])); i = j;
+  }
+  return out.join(', ');
+}
+function feedbackURL(){
+  const p = source && source.type === 'preset' ? presetById(source.id) : null;
+  const collection = p ? `${p.label}${p.group && p.group !== 'Canada' && p.group !== 'Scotland' ? ', ' + stateAbbr(p.group) : ''} (${p.q})`
+    : source && source.type === 'city' ? `City search: ${source.city}` : source && source.q ? `Custom query: ${source.q}` : '';
+  const years = yearRanges(lastRun ? lastRun.vols.map(v => v.year) : items.filter(i => i.on).map(i => i.year));
+  const terms = (lastRun ? lastRun.terms : $('#terms').value.split('\n').map(t => t.trim()).filter(Boolean)).join(' | ');
+  const q = new URLSearchParams({usp: 'pp_url'});
+  if(collection) q.set(FEEDBACK.collection, collection.slice(0, 500));
+  if(years) q.set(FEEDBACK.years, years.slice(0, 500));
+  if(terms) q.set(FEEDBACK.terms, terms.slice(0, 500));
+  q.set(FEEDBACK.page, location.href.slice(0, 1000));
+  return FEEDBACK.form + '?' + q.toString();
+}
+document.addEventListener('click', e => { const a = e.target.closest('a.report'); if(a) a.href = feedbackURL(); }, true);
 
 /* ---------- init ----------
    A link (?c= etc.) wins; otherwise reopen the last collection from its saved list. Nothing is loaded
