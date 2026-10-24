@@ -820,13 +820,19 @@ async function extendContext(item, meta, h){
   while(pos < P.length && /\s/.test(P[pos])) pos++;
   const marked = [...new Set([...raw.matchAll(/(?:\{\{\{|<IA_FTS_MATCH>)([\s\S]*?)(?:\}\}\}|<\/IA_FTS_MATCH>)/gi)].map(x => x[1].trim()).filter(Boolean))];
   const hi = s => marked.length ? s.replace(new RegExp('(' + marked.map(m => m.split(/\s+/).map(reEsc).join('\\s+')).join('|') + ')', 'gi'), '{{{$1}}}') : s;
-  const win = (back, fwd) => {
+  // highlight only inside the hit's own passage: the same address can appear in neighbouring entries
+  let end = found, left = ns.length;
+  while(left > 0 && end < P.length){ if(!/\s/.test(P[end])) left--; end++; }
+  const win = (back, fwd, mark) => {
     const a = Math.max(0, pos - back), b = Math.min(P.length, pos + fwd);
-    return (a > 0 ? '… ' : '') + P.slice(a, b).trim() + (b < P.length ? ' …' : '');
+    let w = P.slice(a, b);
+    if(mark){ const rs = Math.max(found, a) - a, re = Math.max(rs, Math.min(end, b) - a); w = w.slice(0, rs) + hi(w.slice(rs, re)) + w.slice(re); }
+    return (a > 0 ? '… ' : '') + w.trim() + (b < P.length ? ' …' : '');
   };
-  h.text = hi(win(160, 200));
-  h.full = hi(win(900, 900));
+  h.text = win(160, 200, true);
+  h.full = win(900, 900, true);
   h.ctx = win(450, 450).replace(/\s+/g, ' ');
+  h.ctxMarked = win(450, 450, true).replace(/\s+/g, ' ');
   h.extended = true;
   if(P.slice(0, pos).replace(/\s+/g, '').length < 3) note('nothing comes before this passage in the page OCR');
 }
@@ -1130,7 +1136,7 @@ function render(){
     html += `
     <tr>
       <td>${x.year ?? '?'}${vol}<div class="id" title="Hit ID, also in the CSV and Copy for AI">${esc(x.hid || '')}</div></td>
-      <td>${esc(x.term)}${x.match ? `<div><span class="badge ${x.match}" title="${x.match === 'possible' ? 'Number is one character off after correcting OCR; may be a different address' : 'Found as an OCR variant of the house number'}">${x.match === 'possible' ? 'possible' : 'OCR variant'}: ${esc(x.matched || '')}</span></div>` : ''}${x.ad ? `<div><span class="badge ad" title="Short, mostly capital-letter fragment that starts at the match: probably part of an advertisement or a heading. The company name in display type is often missing from the OCR; read it on the scan.">likely ad or heading</span></div>` : ''}</td>
+      <td>${esc(x.term)}${x.match ? `<div><span class="badge ${x.match}" title="${x.match === 'possible' ? 'Number is one character off after correcting OCR; may be a different address' : 'Found as an OCR variant of the house number'}">${x.match === 'possible' ? 'possible' : 'OCR variant'}: ${esc(x.matched || '')}</span></div>` : ''}</td>
       <td class="snip${x.full ? ' more' : ''}" data-r="${ri}">${snippetHTML(x._open ? x.full : x.text)}${x.full ? `<span class="tog">${x._open ? 'Collapse' : 'Show full text'}</span>` : ''}${x.ctxNote ? `<div class="ctxnote" title="${esc(x.ctxNote)}">Starts at the match: ${esc(x.ctxNote)}. Open the scan to see the lines before it; on directory pages this is often a margin advertisement or a heading.</div>` : ''}</td>
       <td><a href="${pageUrl(x)}" target="_blank" rel="noopener"${x.approx ? ' class="approx" title="Estimated from the hit\'s position in the OCR text; the entry may be many pages away"' : ''}>${x.approx ? '≈' : ''}scan ${x.page ?? '?'}</a>` +
         (x.printed ? `<div class="id" title="Page number printed in the directory">p. ${esc(x.printed)}</div>` : '') +
@@ -1174,6 +1180,7 @@ const flagsOf = x => [x.ad && 'ad', x.ctxNote && 'starts_at_match', x.approx && 
 // the wide context with the matched words wrapped in [[ ]], so an assistant can tell which entry hit
 const MARKED = /(?:\{\{\{|<IA_FTS_MATCH>)([\s\S]*?)(?:\}\}\}|<\/IA_FTS_MATCH>)/gi;
 function aiExcerpt(x){
+  if(x.ctxMarked && !(x.terms && x.terms.length > 1)) return x.ctxMarked.replace(/\{\{\{/g, '[[').replace(/\}\}\}/g, ']]');
   const c = context(x);
   const marked = [...new Set((x._markSrc || [x.text]).flatMap(t => [...String(t).matchAll(MARKED)].map(m => m[1].replace(/\s+/g, ' ').trim())).filter(Boolean))];
   if(!marked.length) return c;
@@ -1195,7 +1202,7 @@ function exportRows(){
     if(!g.matches.includes(x.match || 'term')) g.matches.push(x.match || 'term');
     if(x.matched && !g.matched) g.matched = x.matched;
     if(x.ad === false) g.ad = false;
-    if(!g.extended && x.extended){ g.ctx = x.ctx; g.full = x.full; g.extended = true; g.ctxNote = x.ctxNote; }
+    if(!g.extended && x.extended){ g.ctx = x.ctx; g.ctxMarked = x.ctxMarked; g.full = x.full; g.extended = true; g.ctxNote = x.ctxNote; }
   });
   return [...groups.values()];
 }
