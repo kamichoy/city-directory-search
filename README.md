@@ -65,7 +65,7 @@ Put one term per line: an address, a name, a business. Each term is searched in 
 - Put words in quotes to require them to appear together, e.g. `"N Meridian" 1234`. Case, punctuation, and line breaks are ignored, so `"N Meridian"` also matches `N. Meridian`. The quotes carry over to the Internet Archive viewer's search box when you open a result.
 - Quoted terms are also much faster. The Internet Archive's search returns every passage containing any one of the words, so an unquoted term with common words like `N` or `Meridian` can take a minute per volume or time out. A request that gets no answer in 45 seconds is dropped and reported as failed.
 - Names are listed surname first: search `Chung Paul`, not `Paul Chung`.
-- To follow a business and the places tied to it, put the business and each address on their own lines in one search. The AI instructions then ask for the links between them, for example employees of a business who lived at one of the addresses.
+- To follow a business and the places tied to it, put the business and each address on their own lines in one search. A passage found by several terms is shown once in the export, with all its terms.
 - To look up an address, search house number plus street, e.g. `1234 N Meridian`. The street directory section (usually in the back) is arranged by street and house number.
 - **OCR-tolerant house numbers** (on by default). In the name listings an address comes last, after a code letter: `Chung Paul P pres Bamboo Inn Inc r118 W Ohio` (r = resides, h = householder). OCR reads `r118` as one word and often misreads the digits, so the index holds `rll8`, which a search for `118` never finds. In a test on the 1945 Indianapolis directory, `"118 W Ohio"` found 3 entries and `"rll8 W Ohio"` found 13 more. With this option, an address term also searches the number's common OCR forms (prefixed with r, h, x or t; 1 as l or i; 0 as o; 8 as b) and keeps those followed by the street. They are labelled **OCR variant**. It adds one request per address term and volume.
 - **Street sweep** (off by default) also searches the street on its own and keeps house numbers that are one character off after correcting OCR, e.g. `rlli8 W O‘hio` for 118 W Ohio. These are labelled **possible** and can be different addresses (here, 1118). Street names tolerate stray apostrophes and periods inside words.
@@ -102,15 +102,15 @@ Results appear as they come in, grouped by year.
 
 ### 4. Sorting results with an AI assistant
 
-Directory hits are messy: OCR errors, abbreviations, and neighboring entries run together. An AI assistant is good at the first pass of sorting them into a table of who was at an address each year. **Copy for AI** copies the filtered results together with instructions that:
+Directory hits are messy: OCR errors, abbreviations, and neighboring entries run together. An AI assistant can do the data entry: read each excerpt and sort the facts into a table of who was at an address each year. It is asked for extraction only, not writing: no summaries, narrative, or interpretation, just tables of facts read or quoted from the excerpts, each with its hit ID and page link. The analysis and any text for a report stay with the researcher. **Copy for AI** copies the filtered results together with instructions that:
 
 - mark the matched words with `[[ ]]` and flag variant and possible matches, likely ads, excerpts that start at the match, and estimated pages;
 - explain how to read names listings (the address ends the entry, so the person is the name before it), business listings, the street directory, and advertisements, plus common OCR misreadings and Polk abbreviations;
 - tell the assistant to use only the excerpts, not to fill gaps from elsewhere, and to show the original text when it corrects an OCR error;
-- ask for an occupancy table by year (address, names, occupation, household notes, confidence, hit ID, link), a separate list of advertisements and what they corroborate, hits that don't match, coverage gaps, changes over time, and the hits most worth checking on the scan;
+- ask for an occupancy table by year (address, names, occupation, household notes, confidence, hit ID, link), a separate list of advertisements and what they corroborate, hits that don't match, coverage gaps, a year-by-year comparison marked only "same", "different", or "no record", and the hits most worth checking on the scan;
 - list the volumes that were searched without a hit, and any searches that failed.
 
-The instructions adapt to the search: each term is labelled as an address or a name or business, and the assistant is asked for an address table, a people-and-businesses table that keeps business and home addresses apart (in `Wong Ming cook Bamboo Inn Inc r118 W Ohio`, 118 W Ohio is where Wong Ming lived, not the restaurant's address), and, with several terms, the connections between them.
+The instructions adapt to the search: each term is labelled as an address or a name or business, and the assistant is asked for an address table, a people-and-businesses table that keeps business and home addresses apart (in `Wong Ming cook Bamboo Inn Inc r118 W Ohio`, 118 W Ohio is where Wong Ming lived, not the restaurant's address). Reading rules for names are included only when a name or business was searched.
 
 Two ways to use it:
 

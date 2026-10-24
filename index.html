@@ -189,7 +189,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
         <li>A <span class="approx">≈</span> before the scan number means the page was estimated from the hit's position in the OCR text, because the volume is not in the Internet Archive's search index. The entry may be many pages away; turn pages to find it.</li>
         <li>In name listings the address comes last, often glued to a code letter: <code>Chung Paul P pres Bamboo Inn Inc r118 W Ohio</code>. OCR then reads <code>r118</code> as one word, often <code>rll8</code>, which a plain search for 118 misses. <b>OCR-tolerant house numbers</b> catches these and labels them <i>OCR variant</i>. The person at an address is the name <i>before</i> it.</li>
         <li>When a passage starts right at your address, the tool fetches that page's text to add the line before it, so the excerpt shows whose address it is.</li>
-        <li>Names are listed surname first: search <code>Chung Paul</code>, not <code>Paul Chung</code>. To follow a business and the places tied to it, put the business and each address on their own lines in one search; Copy for AI then links them (for example employees of a business who lived at one of the addresses).</li>
+        <li>Names are listed surname first: search <code>Chung Paul</code>, not <code>Paul Chung</code>. To follow a business and the places tied to it, put the business and each address on their own lines in one search.</li>
         <li>For many results, use <b>Export CSV</b>, then attach the file to your AI assistant together with <b>AI instructions for the CSV</b>. Rows found by several terms are merged into one.</li>
         <li>If an address doesn't turn up in a year, search the neighboring house numbers on the same street. Open the page where they appear and look for your address in the scan: it may be there but misread, or the page may be folded or damaged in the scan.</li>
         <li><b>Copy for AI</b> copies the shown results with instructions for an AI assistant to sort them into a table by year, keeping each hit ID and page link so you can check every row against the scan.</li>
@@ -1205,7 +1205,7 @@ function aiText(rows, mode = 'paste'){
   p('');
   p('You are helping with historic property research (for example a National Register nomination or a Section 106 review) using city directories. ' +
     (mode === 'csv' ? 'The attached CSV file holds' : 'Below are') +
-    ' OCR excerpts found with City Directory Search, a tool that searches scanned directories on the Internet Archive. The OCR contains errors: misread letters and numbers, words split or run together, and lines from neighboring columns mixed in. Your job is a careful first pass that sorts these excerpts into tables a researcher will check against the page scans. The directories are the source, not you.');
+    ' OCR excerpts found with City Directory Search, a tool that searches scanned directories on the Internet Archive. The OCR contains errors: misread letters and numbers, words split or run together, and lines from neighboring columns mixed in. Your job is data extraction only: read the facts in these excerpts into tables that a researcher will check against the page scans and interpret themselves. The directories are the source, not you.');
   p('');
   p('SEARCH');
   p('Terms:');
@@ -1215,7 +1215,6 @@ function aiText(rows, mode = 'paste'){
   p('Goal:');
   if(hasAddr) p('- For each address: who lived or did business there in each year.');
   if(hasName) p('- For each person or business: in each year, where they were (keep business address and home address apart), what they did, and who is connected to them (owners and officers, employees, household).');
-  if(terms.length > 1) p('- Connect the terms: the same people or businesses across addresses, moves, and changes over time.');
   p('');
   p('HOW THE DATA IS MARKED');
   p('- Each data row is one passage. The matched words are wrapped in [[ ]]. The excerpt also contains neighboring entries, so first decide which entry the match belongs to. When several terms found the same passage, the row lists them all, and its hit_id lists every hit ID.');
@@ -1225,7 +1224,7 @@ function aiText(rows, mode = 'paste'){
   p('HOW TO READ DIRECTORY TEXT');
   p('1. Names (alphabetical) section: an entry starts with the surname and ENDS with the address, usually right after a one-letter code (h = householder, r = resides or rooms, b = boards). "Chung Paul P pres Bamboo Inn Inc r118 W Ohio" means Paul P. Chung, president of Bamboo Inn Inc., resided at 118 W Ohio. The person at an address is the name BEFORE it; the text after it is the next entry. A line that begins with a given name continues the surname of the line above. A name in parentheses after a man\'s name is usually his wife.');
   p('2. Employer versus residence: in "Wong Ming cook Bamboo Inn Inc r118 W Ohio", Bamboo Inn Inc is where Wong Ming worked and 118 W Ohio is where he lived. It is NOT the business\'s address. A business\'s own address comes from its own entry (the business name at the start: "Bamboo Inn Inc (Paul P Chung pres) restr 138 N Meridian"), a classified business heading, the street directory, or an ad. If only employee entries mention a business, say its address is not shown.');
-  p('3. People: entries are surname first ("Chung Paul P" is Paul P. Chung). People with the same surname but different initials or occupations are different people unless the excerpts link them; the same name, occupation and address in consecutive years suggests the same person, and you should call that an inference. A married woman is often listed only in her husband\'s entry; a widow appears as "wid Jos" (widow of Joseph).');
+  if(hasName) p('3. People: entries are surname first ("Chung Paul P" is Paul P. Chung). People with the same surname but different initials or occupations are different people unless the excerpts link them; the same name, occupation and address in consecutive years suggests the same person, and you should call that an inference. A married woman is often listed only in her husband\'s entry; a widow appears as "wid Jos" (widow of Joseph).');
   p('4. Business listings, often in capitals or bold: business name, sometimes the owner in parentheses, a description, the address, the telephone; the owner\'s home may follow after h. "BACHELOR SAFE CO (Charles D Bachelor), Dealers in Vault Doors ... 118 W Ohio, Tel Main 3123".');
   p('5. Street (reverse) directory: a street heading such as "OHIO W", then house numbers, each followed by its occupant: "118 Bamboo Inn Inc".');
   p('6. Advertisements in page margins, headers, footers and boxes: OCR splits them into fragments, and the large display type with the company name is often missing or garbled. "E 118 W. OHIO ST. INDIANAPOLIS" is such a fragment, the last line of a boxed ad. Never treat an ad as a residence, a street heading, or a vacancy. If another row from the same year names a business at that address, the ad can corroborate it (same address, same telephone); otherwise list it as an unidentified advertisement to be read on the scan.');
@@ -1233,6 +1232,7 @@ function aiText(rows, mode = 'paste'){
   p('8. Abbreviations vary by publisher and year; each volume has a key near the front. Common ones in Polk directories: av avenue, b or bds boards, carp carpenter, clk clerk, cor corner, emp employee, h householder, lab laborer, mach machinist, mgr manager, nr near, pres president, propr proprietor, r resides or rooms, restr restaurant, ret retired, rms rooms, slsmn salesman, tchr teacher, wid widow (of). (c) = "colored," which older directories used to mark Black residents; report it as a quoted historical notation.');
   p('');
   p('RULES');
+  p('0. Extract, do not write. No summaries, narrative history, interpretation, conclusions about use or significance, or sentences meant for a report. Output only tables and short lists of facts read or quoted directly from the excerpts. Notes and reasons: at most about ten words, quoting the excerpt where possible.');
   p('1. Use only these excerpts. No outside knowledge, no guessing to fill gaps, and do not merge different people because their names look alike.');
   p('2. When you correct OCR, give your reading with the original in brackets: Bachelor [BACinXOB].');
   p('3. Every row you output keeps its hit_id and link, so each fact can be checked on the scan.');
@@ -1240,15 +1240,14 @@ function aiText(rows, mode = 'paste'){
   p('5. No hit is not proof of absence: the page may be misread, folded, damaged, or tightly bound in the scan.');
   if(mode === 'csv') p(`6. Work through every row of the file (${rows.length} rows). At the end, state how many rows you processed out of ${rows.length}; if you could not read them all, say which hit_ids you skipped.`);
   p('');
-  p('OUTPUT (no introduction; skip sections that do not apply; keep notes short)');
+  p('OUTPUT (tables and lists only; no introduction or closing remarks; skip sections that do not apply)');
   let n = 0; const sec = () => String.fromCharCode(65 + n++);
   if(hasAddr) p(`${sec()}. Addresses: one row per occupant per year: year | hit_id | address as printed | name(s) | occupation or business | household notes (spouse, h/r/b, other) | confidence and reason | link.`);
   if(hasName) p(`${sec()}. People and businesses: one row per person or business per year: year | hit_id | name as printed | role (the business itself, owner or officer, employee, household member, other mention) | address, marked business or residence | occupation | notes | confidence and reason | link.`);
-  if(terms.length > 1) p(`${sec()}. Connections across terms: a short year-by-year timeline linking the terms (for example employees of a business living at a searched address, or a business moving between addresses), citing hit_ids and marking inferences as inferences.`);
   p(`${sec()}. Advertisements and headings: year | hit_id | what can be read | what it corroborates, if anything | link.`);
   p(`${sec()}. Not matching: hit_ids that turned out to be other addresses, other people, or unrelated, with a few words why.`);
   p(`${sec()}. Coverage: for each term, the years with no matching entry, and searches that failed (listed below).`);
-  p(`${sec()}. Changes over time: new occupants, moves, a change of use (for example residential to commercial), renumbering, or gaps, citing the hit_ids that show them.`);
+  p(`${sec()}. Year-by-year comparison, for each term: year | ${hasAddr && hasName ? 'occupant(s) of the address, or address(es) of the person or business' : hasAddr ? 'occupant(s)' : 'address(es)'} | compared with the previous searched year: "same", "different", or "no record" | hit_ids. Fill the last column mechanically; do not describe or explain the changes.`);
   p(`${sec()}. Check on the scan: the hit_ids that most need a look at the page image, and why.`);
   if(lastRun){
     const gaps = [];
