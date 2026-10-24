@@ -47,6 +47,8 @@ select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px
 [hidden]{display:none !important}
 .cite{display:block;margin-top:4px;padding:1px 6px;font-size:11px;color:var(--muted)}
 .approx{color:var(--err)}
+.linkbtn{border:0;background:none;padding:4px 2px;color:var(--accent);text-decoration:underline;font-size:13px}
+.linkbtn:disabled{color:var(--muted);text-decoration:none}
 .ctxnote{margin-top:4px;font-family:-apple-system,"Segoe UI",sans-serif;font-size:11px;color:var(--muted)}
 .opts{margin-top:8px}
 label.chk{display:flex;gap:8px;align-items:flex-start;color:var(--ink);font-size:12.5px;margin:6px 0 0;line-height:1.45}
@@ -187,6 +189,8 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
         <li>A <span class="approx">≈</span> before the scan number means the page was estimated from the hit's position in the OCR text, because the volume is not in the Internet Archive's search index. The entry may be many pages away; turn pages to find it.</li>
         <li>In name listings the address comes last, often glued to a code letter: <code>Chung Paul P pres Bamboo Inn Inc r118 W Ohio</code>. OCR then reads <code>r118</code> as one word, often <code>rll8</code>, which a plain search for 118 misses. <b>OCR-tolerant house numbers</b> catches these and labels them <i>OCR variant</i>. The person at an address is the name <i>before</i> it.</li>
         <li>When a passage starts right at your address, the tool fetches that page's text to add the line before it, so the excerpt shows whose address it is.</li>
+        <li>Names are listed surname first: search <code>Chung Paul</code>, not <code>Paul Chung</code>. To follow a business and the places tied to it, put the business and each address on their own lines in one search.</li>
+        <li>For many results, use <b>Export CSV</b>, then attach the file to your AI assistant together with <b>AI instructions for the CSV</b>. Rows found by several terms are merged into one.</li>
         <li>If an address doesn't turn up in a year, search the neighboring house numbers on the same street. Open the page where they appear and look for your address in the scan: it may be there but misread, or the page may be folded or damaged in the scan.</li>
         <li><b>Copy for AI</b> copies the shown results with instructions for an AI assistant to sort them into a table by year, keeping each hit ID and page link so you can check every row against the scan.</li>
       </ul>
@@ -200,6 +204,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
     <input type="text" id="filter" placeholder="Filter results…">
     <button id="btnCsv" disabled>Export CSV</button>
     <button id="btnAI" disabled title="Copy the results with instructions, to paste into an AI assistant">Copy for AI</button>
+    <button id="btnAIcsv" class="linkbtn" disabled title="Copy only the instructions, to paste alongside the exported CSV file">AI instructions for the CSV</button>
     <span id="rcount" style="color:var(--muted);font-size:12px"></span>
   </div>
   <div class="tablewrap">
@@ -771,7 +776,8 @@ async function extendContext(item, meta, h){
   const raw = String(h.full || h.text);
   const lead = stripMarks(raw.slice(0, Math.max(0, raw.search(/\{\{\{|<IA_FTS_MATCH>/i)))).trim();
   if(lead.length >= 40) return;
-  const note = msg => { if(lead.length < 8) h.ctxNote = msg; };   // only flag passages that really start at the match
+  // only flag address hits that really start at the match (for a name or business, starting there is normal)
+  const note = msg => { if(lead.length < 8 && parseAddress(parseTerm(h.term).query)) h.ctxNote = msg; };
   const pt = await pageText(item, meta, h.page);
   if(!pt.text){ note('page text unavailable: ' + pt.fail); return; }
   const P = pt.text;
@@ -847,7 +853,7 @@ async function searchLocal(item, meta, term){
     if(!words.every(w => nw.includes(' ' + w.toLowerCase() + ' '))) continue;
     if(out.length && out[out.length - 1]._b > m.index && !phrases.length) continue;   // same hit already covered
     const snippet = (a > 0 ? '…' : '') + win.replace(/\f/g, ' ').replace(hl, '{{{$1}}}') + (b < text.length ? '…' : '');
-    out.push(hit(L, snippet, context(L, m.index, m.index + m[0].length), b, {ad: lineAd(m.index, m.index + m[0].length)}));
+    out.push(hit(L, snippet, context(L, m.index, m.index + m[0].length), b, {ad: lineAd(m.index, m.index + m[0].length), _para: 'line' + (text.lastIndexOf('\n', m.index - 1) + 1)}));
   }
   // OCR-tolerant addresses: every "<number-ish> <street>" in the text
   const addr = (opts.tolerant || opts.sweep) ? parseAddress(query) : null;
@@ -859,7 +865,7 @@ async function searchLocal(item, meta, term){
       const L = locate(f.start);
       const a = Math.max(L.pa, f.start - W), b = Math.min(L.pb, f.end + W);
       const snippet = (a > 0 ? '…' : '') + markSpans(text.slice(a, b), [{start:f.start - a, end:f.end - a}]).replace(/\f/g, ' ') + (b < text.length ? '…' : '');
-      out.push(hit(L, snippet, context(L, f.start, f.end), b, {match:f.kind, matched:text.slice(f.start, f.end).replace(/\s+/g, ' '), _s:f.start, ad: lineAd(f.start, f.end)}));
+      out.push(hit(L, snippet, context(L, f.start, f.end), b, {match:f.kind, matched:text.slice(f.start, f.end).replace(/\s+/g, ' '), _s:f.start, ad: lineAd(f.start, f.end), _para: 'line' + (text.lastIndexOf('\n', f.start - 1) + 1)}));
     }
   }
   return out;
@@ -934,7 +940,7 @@ async function searchInside(item, term){
     const wide = trimSnippet(raw, phrases, words, 450);
     return {year:item.year, id:item.id, title:item.title || item.id, volume:item.volume || '', term,
             text: short || raw, full: short ? raw : null, page: pageOf(mt), linkBy:'leaf', printed:'',
-            ctx: stripMarks(wide || raw).replace(/\s+/g, ' ').trim(), ad: looksLikeAd(raw, leadOf(raw)), ...extra};
+            ctx: stripMarks(wide || raw).replace(/\s+/g, ' ').trim(), ad: looksLikeAd(raw, leadOf(raw)), _para: norm(raw).slice(0, 400), ...extra};
   };
   const hits = matches.map(mt => mkHit(mt, mt.text || ''));
 
@@ -1080,7 +1086,7 @@ function filtered(){
 }
 function render(){
   const r = filtered();
-  $('#btnCsv').disabled = $('#btnAI').disabled = !results.length;
+  $('#btnCsv').disabled = $('#btnAI').disabled = $('#btnAIcsv').disabled = !results.length;
   $('#rcount').textContent = results.length ? `Showing ${r.length} of ${results.length}` : '';
   if(!r.length){ $('#tbody').innerHTML = `<tr><td colspan="4" class="empty">${results.length ? 'No results match the filter' : 'No results'}</td></tr>`; return; }
   const multiVol = new Set();
@@ -1143,94 +1149,142 @@ const fullText = x => plain(x.full || x.text);
 const context = x => plain(x.ctx || x.text);
 const flagsOf = x => [x.ad && 'ad', x.ctxNote && 'starts_at_match', x.approx && 'page_estimated', x.local && 'from_ocr_text'].filter(Boolean).join(',');
 // the wide context with the matched words wrapped in [[ ]], so an assistant can tell which entry hit
+const MARKED = /(?:\{\{\{|<IA_FTS_MATCH>)([\s\S]*?)(?:\}\}\}|<\/IA_FTS_MATCH>)/gi;
 function aiExcerpt(x){
   const c = context(x);
-  const marked = [...new Set([...String(x.text).matchAll(/(?:\{\{\{|<IA_FTS_MATCH>)([\s\S]*?)(?:\}\}\}|<\/IA_FTS_MATCH>)/gi)].map(m => m[1].replace(/\s+/g, ' ').trim()).filter(Boolean))];
+  const marked = [...new Set((x._markSrc || [x.text]).flatMap(t => [...String(t).matchAll(MARKED)].map(m => m[1].replace(/\s+/g, ' ').trim())).filter(Boolean))];
   if(!marked.length) return c;
   const re = new RegExp('(?<![\\p{L}\\p{N}])(' + marked.sort((a, b) => b.length - a.length).map(m => m.split(' ').map(reEsc).join('\\s+')).join('|') + ')(?![\\p{L}\\p{N}])', 'giu');
   return c.replace(re, '[[$1]]');
 }
+/* One row per passage for export: when several terms (or a term and its OCR variants) found the same
+   passage, the rows are merged, keeping every term and hit ID, so an assistant doesn't count it twice. */
+const byYearHid = (a, b) => (a.year ?? 0) - (b.year ?? 0) || String(a.hid).localeCompare(String(b.hid));
+function exportRows(){
+  const groups = new Map();
+  filtered().slice().sort(byYearHid).forEach(x => {
+    const key = x.id + '|' + x.page + '|' + (x._para || norm(x.text).slice(0, 400));
+    const g = groups.get(key);
+    if(!g){ groups.set(key, {...x, terms:[x.term], hids:[x.hid], _markSrc:[x.text], matches:[x.match || 'term']}); return; }
+    if(!g.terms.includes(x.term)) g.terms.push(x.term);
+    g.hids.push(x.hid);
+    g._markSrc.push(x.text);
+    if(!g.matches.includes(x.match || 'term')) g.matches.push(x.match || 'term');
+    if(x.matched && !g.matched) g.matched = x.matched;
+    if(x.ad === false) g.ad = false;
+    if(!g.extended && x.extended){ g.ctx = x.ctx; g.full = x.full; g.extended = true; g.ctxNote = x.ctxNote; }
+  });
+  return [...groups.values()];
+}
+const termKind = t => parseAddress(parseTerm(t).query) ? 'address' : 'name or business';
+function csvRows(rows){
+  return [['hit_id','also_hit_ids','year','terms','match','matched_text','flags','excerpt_marked','snippet','context','full_text','scan','scan_estimated','printed_page','source','link','citation','title','volume','identifier']].concat(rows.map(x =>
+    [x.hids[0] || '', x.hids.slice(1).join(' '), x.year ?? '', x.terms.join(' | '), x.matches.join(', '), x.matched || '', flagsOf(x), aiExcerpt(x), plain(x.text), context(x), fullText(x),
+     x.page ?? '', x.approx ? 'yes' : '', x.printed || '', x.local ? 'OCR text' : 'search index', pageUrl(x), citation(x), x.title, x.volume, x.id]));
+}
 $('#btnCsv').onclick = () => {
-  const rows = [['hit_id','year','term','match','matched_text','flags','snippet','context','full_text','scan','scan_estimated','printed_page','source','link','citation','title','volume','identifier']].concat(filtered().map(x =>
-    [x.hid || '', x.year ?? '', x.term, x.match || 'term', x.matched || '', flagsOf(x), plain(x.text), context(x), fullText(x), x.page ?? '', x.approx ? 'yes' : '', x.printed || '',
-     x.local ? 'OCR text' : 'search index', pageUrl(x), citation(x), x.title, x.volume, x.id]));
-  const csv = '﻿' + rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const rows = exportRows();
+  const csv = '﻿' + csvRows(rows).map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
   a.download = 'directory_search_' + new Date().toISOString().slice(0,10) + '.csv';
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  status(`Exported ${rows.length} row${rows.length === 1 ? '' : 's'} (one per passage). To sort them with an AI assistant, attach the file and paste <b>AI instructions for the CSV</b>.`, 'ok');
 };
 
-/* Copy for AI: the filtered results as a tab-separated table, with instructions that keep an assistant
-   to the evidence (no filling gaps, flag uncertainty, keep hit_id and link on every row). */
-function aiText(rows){
-  const terms = lastRun ? lastRun.terms : [...new Set(rows.map(r => r.term))];
+/* Instructions for an AI assistant. mode "paste" includes the data; mode "csv" refers to the exported file.
+   They keep the assistant to the evidence: no filling gaps, flag uncertainty, keep hit IDs and links. */
+function aiText(rows, mode = 'paste'){
+  const terms = lastRun ? lastRun.terms : [...new Set(rows.flatMap(r => r.terms))];
+  const kinds = terms.map(termKind);
+  const hasAddr = kinds.includes('address'), hasName = kinds.includes('name or business');
   const years = lastRun ? lastRun.vols.map(v => v.year).filter(Boolean) : rows.map(r => r.year).filter(Boolean);
   const span = years.length ? ` (${Math.min(...years)} to ${Math.max(...years)})` : '';
   const L = [], p = s => L.push(s);
-  p('Do the task below now, in this reply. Do not ask clarifying questions, offer options, or summarize what you are about to do; start directly with section A. If a choice is unclear, pick the most careful reading and note it in one line. If you run out of space, stop at the end of a complete row, write "CONTINUES - reply \'continue\'", and pick up from the next row when asked.');
+  p('Do the task below now, in this reply. Do not ask clarifying questions, offer options, or summarize what you are about to do; start directly with the first output section that applies. If a choice is unclear, pick the most careful reading and note it in one line. If you run out of space, stop at the end of a complete row, write "CONTINUES - reply \'continue\'", and pick up from the next row when asked.');
   p('');
-  p('You are helping with historic property research (for example a National Register nomination or a Section 106 review) using city directories. Below are OCR excerpts found with City Directory Search, a tool that searches scanned directories on the Internet Archive. The OCR contains errors: misread letters and numbers, words split or run together, and lines from neighboring columns mixed in. Your job is a careful first pass that sorts these excerpts into tables a researcher will check against the page scans. The directories are the source, not you.');
+  p('You are helping with historic property research (for example a National Register nomination or a Section 106 review) using city directories. ' +
+    (mode === 'csv' ? 'The attached CSV file holds' : 'Below are') +
+    ' OCR excerpts found with City Directory Search, a tool that searches scanned directories on the Internet Archive. The OCR contains errors: misread letters and numbers, words split or run together, and lines from neighboring columns mixed in. Your job is data extraction only: read the facts in these excerpts into tables that a researcher will check against the page scans and interpret themselves. The directories are the source, not you.');
   p('');
   p('SEARCH');
-  p('Terms: ' + terms.map(t => `"${t}"`).join(', '));
+  p('Terms:');
+  const qt = t => /^["“].*["”]$/.test(t.trim()) ? t.trim() : `"${t}"`;
+  terms.forEach((t, i) => p(`- ${qt(t)} (${kinds[i]})`));
   if(lastRun) p(`Volumes searched: ${lastRun.vols.length}${span}`);
-  p('Goal: for each year, find the entries that match the search terms. For an address: who lived or did business there. For a person or business: their address, occupation, and household.');
+  p('Goal:');
+  if(hasAddr) p('- For each address: who lived or did business there in each year.');
+  if(hasName) p('- For each person or business: in each year, where they were (keep business address and home address apart), what they did, and who is connected to them (owners and officers, employees, household).');
   p('');
   p('HOW THE DATA IS MARKED');
-  p('- Each data row is one hit. The matched words are wrapped in [[ ]]. The excerpt also contains neighboring entries, so first decide which entry the match belongs to.');
-  p('- match: "term" = found as typed. "variant" = found through a known OCR misreading of the house number (rll8 for r118). "possible" = house number one character off after correcting OCR; it may be a different address (for 118, it could be 1118).');
+  p('- Each data row is one passage. The matched words are wrapped in [[ ]]. The excerpt also contains neighboring entries, so first decide which entry the match belongs to. When several terms found the same passage, the row lists them all, and its hit_id lists every hit ID.');
+  p('- match: "term" = found as typed (a row found by several terms can list several kinds). "variant" = found through a known OCR misreading of the house number (rll8 for r118). "possible" = house number one character off after correcting OCR; it may be a different address (for 118, it could be 1118).');
   p('- flags: "ad" = a short, mostly capital-letter fragment that starts at the match, probably part of an advertisement or a heading. "starts_at_match" = nothing comes before the match in the excerpt, so the name the address belongs to may be missing. "page_estimated" = the page link is approximate. "from_ocr_text" = found in the downloaded OCR text of a volume the search index does not cover.');
   p('');
   p('HOW TO READ DIRECTORY TEXT');
   p('1. Names (alphabetical) section: an entry starts with the surname and ENDS with the address, usually right after a one-letter code (h = householder, r = resides or rooms, b = boards). "Chung Paul P pres Bamboo Inn Inc r118 W Ohio" means Paul P. Chung, president of Bamboo Inn Inc., resided at 118 W Ohio. The person at an address is the name BEFORE it; the text after it is the next entry. A line that begins with a given name continues the surname of the line above. A name in parentheses after a man\'s name is usually his wife.');
-  p('2. Business listings, often in capitals or bold: business name, sometimes the owner in parentheses, a description, the address, the telephone; the owner\'s home may follow after h. "BACHELOR SAFE CO (Charles D Bachelor), Dealers in Vault Doors ... 118 W Ohio, Tel Main 3123".');
-  p('3. Street (reverse) directory: a street heading such as "OHIO W", then house numbers, each followed by its occupant: "118 Bamboo Inn Inc".');
-  p('4. Advertisements in page margins, headers, footers and boxes: OCR splits them into fragments, and the large display type with the company name is often missing or garbled. "E 118 W. OHIO ST. INDIANAPOLIS" is such a fragment, the last line of a boxed ad. Never treat an ad as a residence, a street heading, or a vacancy. If another row from the same year names a business at that address, the ad can corroborate it (same address, same telephone); otherwise list it as an unidentified advertisement to be read on the scan.');
-  p('5. OCR misreadings: 1 as l, i or I; 0 as O; 8 as B; 5 as S; the code r as x or t; codes glued to numbers (r118 read as rll8 or rlli8); stray punctuation inside words (O‘hio). Garbled capitals are often a name in display type ("BACinXOB CHAKI-.es" next to safe dealers at 118 W Ohio is probably BACHELOR CHAS). Give such readings as uncertain.');
-  p('6. Abbreviations vary by publisher and year; each volume has a key near the front. Common ones in Polk directories: av avenue, b or bds boards, carp carpenter, clk clerk, cor corner, emp employee, h householder, lab laborer, mach machinist, mgr manager, nr near, pres president, propr proprietor, r resides or rooms, ret retired, rms rooms, slsmn salesman, tchr teacher, wid widow (of). (c) = "colored," which older directories used to mark Black residents; report it as a quoted historical notation.');
+  p('2. Employer versus residence: in "Wong Ming cook Bamboo Inn Inc r118 W Ohio", Bamboo Inn Inc is where Wong Ming worked and 118 W Ohio is where he lived. It is NOT the business\'s address. A business\'s own address comes from its own entry (the business name at the start: "Bamboo Inn Inc (Paul P Chung pres) restr 138 N Meridian"), a classified business heading, the street directory, or an ad. If only employee entries mention a business, say its address is not shown.');
+  if(hasName) p('3. People: entries are surname first ("Chung Paul P" is Paul P. Chung). People with the same surname but different initials or occupations are different people unless the excerpts link them; the same name, occupation and address in consecutive years suggests the same person, and you should call that an inference. A married woman is often listed only in her husband\'s entry; a widow appears as "wid Jos" (widow of Joseph).');
+  p('4. Business listings, often in capitals or bold: business name, sometimes the owner in parentheses, a description, the address, the telephone; the owner\'s home may follow after h. "BACHELOR SAFE CO (Charles D Bachelor), Dealers in Vault Doors ... 118 W Ohio, Tel Main 3123".');
+  p('5. Street (reverse) directory: a street heading such as "OHIO W", then house numbers, each followed by its occupant: "118 Bamboo Inn Inc".');
+  p('6. Advertisements in page margins, headers, footers and boxes: OCR splits them into fragments, and the large display type with the company name is often missing or garbled. "E 118 W. OHIO ST. INDIANAPOLIS" is such a fragment, the last line of a boxed ad. Never treat an ad as a residence, a street heading, or a vacancy. If another row from the same year names a business at that address, the ad can corroborate it (same address, same telephone); otherwise list it as an unidentified advertisement to be read on the scan.');
+  p('7. OCR misreadings: 1 as l, i or I; 0 as O; 8 as B; 5 as S; the code r as x or t; codes glued to numbers (r118 read as rll8 or rlli8); stray punctuation inside words (O‘hio). Garbled capitals are often a name in display type ("BACinXOB CHAKI-.es" next to safe dealers at 118 W Ohio is probably BACHELOR CHAS). Give such readings as uncertain.');
+  p('8. Abbreviations vary by publisher and year; each volume has a key near the front. Common ones in Polk directories: av avenue, b or bds boards, carp carpenter, clk clerk, cor corner, emp employee, h householder, lab laborer, mach machinist, mgr manager, nr near, pres president, propr proprietor, r resides or rooms, restr restaurant, ret retired, rms rooms, slsmn salesman, tchr teacher, wid widow (of). (c) = "colored," which older directories used to mark Black residents; report it as a quoted historical notation.');
   p('');
   p('RULES');
+  p('0. Extract, do not write. No summaries, narrative history, interpretation, conclusions about use or significance, or sentences meant for a report. Output only tables and short lists of facts read or quoted directly from the excerpts. Notes and reasons: at most about ten words, quoting the excerpt where possible.');
   p('1. Use only these excerpts. No outside knowledge, no guessing to fill gaps, and do not merge different people because their names look alike.');
   p('2. When you correct OCR, give your reading with the original in brackets: Bachelor [BACinXOB].');
   p('3. Every row you output keeps its hit_id and link, so each fact can be checked on the scan.');
   p('4. Give a confidence (high, medium, low) and a short reason when it is not high. Rows that are variant or possible matches, ads, or starts_at_match are at most medium until checked on the scan.');
   p('5. No hit is not proof of absence: the page may be misread, folded, damaged, or tightly bound in the scan.');
+  if(mode === 'csv') p(`6. Work through every row of the file (${rows.length} rows). At the end, state how many rows you processed out of ${rows.length}; if you could not read them all, say which hit_ids you skipped.`);
   p('');
-  p('OUTPUT (no introduction; keep notes short; sections B to F can be brief lists)');
-  p('A. Occupancy: one row per person or business per year: year | hit_id | address as printed | name(s) | occupation or business | household notes (spouse, h/r/b, other) | confidence and reason | link.');
-  p('B. Advertisements and headings: year | hit_id | what can be read | what it corroborates, if anything | link.');
-  p('C. Not matching: hit_ids that turned out to be other addresses or unrelated, with a few words why.');
-  p('D. Coverage: years with no matching entry, and searches that failed (listed below).');
-  p('E. Changes over time: new occupants, a change of use (for example residential to commercial), renumbering, or gaps, citing the hit_ids that show them.');
-  p('F. Check on the scan: the hit_ids that most need a look at the page image, and why.');
+  p('OUTPUT (tables and lists only; no introduction or closing remarks; skip sections that do not apply)');
+  let n = 0; const sec = () => String.fromCharCode(65 + n++);
+  if(hasAddr) p(`${sec()}. Addresses: one row per occupant per year: year | hit_id | address as printed | name(s) | occupation or business | household notes (spouse, h/r/b, other) | confidence and reason | link.`);
+  if(hasName) p(`${sec()}. People and businesses: one row per person or business per year: year | hit_id | name as printed | role (the business itself, owner or officer, employee, household member, other mention) | address, marked business or residence | occupation | notes | confidence and reason | link.`);
+  p(`${sec()}. Advertisements and headings: year | hit_id | what can be read | what it corroborates, if anything | link.`);
+  p(`${sec()}. Not matching: hit_ids that turned out to be other addresses, other people, or unrelated, with a few words why.`);
+  p(`${sec()}. Coverage: for each term, the years with no matching entry, and searches that failed (listed below).`);
+  p(`${sec()}. Year-by-year comparison, for each term: year | ${hasAddr && hasName ? 'occupant(s) of the address, or address(es) of the person or business' : hasAddr ? 'occupant(s)' : 'address(es)'} | compared with the previous searched year: "same", "different", or "no record" | hit_ids. Fill the last column mechanically; do not describe or explain the changes.`);
+  p(`${sec()}. Check on the scan: the hit_ids that most need a look at the page image, and why.`);
   if(lastRun){
     const gaps = [];
     terms.forEach(t => {
       const hitIds = new Set(results.filter(r => r.term === t).map(r => r.id));
       const none = lastRun.vols.filter(v => lastRun.done.has(v.id + '\u0000' + t) && !hitIds.has(v.id)).map(v => v.year ?? v.id);
       const failed = lastRun.vols.filter(v => lastRun.failed.has(v.id + '\u0000' + t)).map(v => v.year ?? v.id);
-      if(none.length) gaps.push(`"${t}": searched with no hits in ${[...new Set(none)].join(', ')}`);
-      if(failed.length) gaps.push(`"${t}": search failed (not checked) in ${[...new Set(failed)].join(', ')}`);
+      if(none.length) gaps.push(`${qt(t)}: searched with no hits in ${[...new Set(none)].join(', ')}`);
+      if(failed.length) gaps.push(`${qt(t)}: search failed (not checked) in ${[...new Set(failed)].join(', ')}`);
     });
     if(gaps.length){ p(''); p('COVERAGE GAPS'); gaps.forEach(g => p('- ' + g)); }
   }
   p('');
-  p('DATA (tab-separated)');
-  p(['hit_id','year','term','match','flags','printed_page','excerpt','link'].join('\t'));
-  rows.forEach(x => p([x.hid || '', x.year ?? '', x.term, x.match || 'term', flagsOf(x), x.printed || '', aiExcerpt(x).replace(/\t/g, ' '), pageUrl(x)].join('\t')));
+  if(mode === 'csv'){
+    p(`DATA: the attached CSV file, ${rows.length} rows, one per passage. Use these columns: hit_id and also_hit_ids, year, terms, match, flags, printed_page, excerpt_marked (the excerpt with the match in [[ ]]), link. Ignore the other columns.`);
+  }else{
+    p('DATA (tab-separated)');
+    p(['hit_id','year','terms','match','flags','printed_page','excerpt','link'].join('\t'));
+    rows.forEach(x => p([x.hids.join(' '), x.year ?? '', x.terms.join(' | '), x.matches.join(', '), flagsOf(x), x.printed || '', aiExcerpt(x).replace(/\t/g, ' '), pageUrl(x)].join('\t')));
+  }
   return L.join('\n');
 }
 $('#btnAI').onclick = async () => {
-  const rows = filtered().slice().sort((a, b) => (a.year ?? 0) - (b.year ?? 0) || String(a.hid).localeCompare(String(b.hid)));
+  const rows = exportRows();
   const text = aiText(rows);
   const ok = await copyText(text);
   const words = Math.round(text.length / 6 / 100) * 100;
-  status(ok ? `Copied ${rows.length} result${rows.length === 1 ? '' : 's'} with instructions (about ${words.toLocaleString()} words). Paste it into your AI assistant.` +
-      (rows.length > 40 ? ' <span class="approx">More than 40 results: free assistants often stall or cut off long tables. Filter to a decade (type e.g. 192 in Filter results) and copy one batch at a time.</span>' : '') +
-      (text.length > 120000 ? ' <span class="approx">That is long; filter the results first if the assistant cuts it off.</span>' : '') +
+  status(ok ? `Copied ${rows.length} passage${rows.length === 1 ? '' : 's'} with instructions (about ${words.toLocaleString()} words). Paste it into your AI assistant.` +
+      (rows.length > 40 ? ' <span class="approx">More than 40 results: free assistants often stall or cut off long tables. Filter to a decade (type e.g. 192 in Filter results) and copy one batch at a time, or use Export CSV with AI instructions for the CSV.</span>' : '') +
       ' Verify every fact against the page scan before using it.'
     : 'Copy failed. Use Export CSV instead.', ok ? 'ok' : 'err');
+};
+$('#btnAIcsv').onclick = async () => {
+  const rows = exportRows();
+  const ok = await copyText(aiText(rows, 'csv'));
+  status(ok ? `Copied instructions for a CSV of ${rows.length} row${rows.length === 1 ? '' : 's'}. Attach the exported CSV to your AI assistant and paste these instructions with it. If you changed the filter since exporting, export again so the counts match.`
+            : 'Copy failed.', ok ? 'ok' : 'err');
 };
 
 /* ---------- init ----------
