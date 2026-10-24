@@ -722,7 +722,8 @@ function placeNumber(P, from, num){
   const re = /(?<![\p{L}\p{N}])\d{1,5}(?!\p{N})/gu;
   re.lastIndex = from;
   let m;
-  while((m = re.exec(P))) toks.push({v:+m[0], s:m.index, e:m.index + m[0].length});
+  // numbers written with a leading zero are telephone numbers ("Randolph 0212"), not addresses
+  while((m = re.exec(P))) if(!/^0\d/.test(m[0])) toks.push({v:+m[0], s:m.index, e:m.index + m[0].length});
   for(let i = 0; i + 1 < toks.length; i++){
     const a = toks[i], b = toks[i + 1];
     if(b.s - a.e === 1 && +(String(a.v) + P.slice(b.s, b.e)) === N) return {pos:a.s, len:b.e - a.s, exact:true};
@@ -732,8 +733,11 @@ function placeNumber(P, from, num){
   const hs = toks.filter(t => t.v >= Math.floor(N / 2) && t.v <= N * 2 + 100);
   if(!hs.length) return null;
   const below = hs.filter(t => t.v < N), above = hs.filter(t => t.v > N);
-  if(below.length && above.length){ const t = below[below.length - 1]; return {pos:t.s, len:t.e - t.s, exact:false}; }
-  return below.length ? {below:true} : {above:true, pos:above[0].s, len:above[0].e - above[0].s};
+  // a single higher number is often stray (an ad's "222 E. OHIO ST." at the foot of the page): it takes
+  // at least two higher house numbers to say the street has passed num
+  if(above.length < 2) return below.length ? {below:true} : null;
+  if(below.length){ const t = below[below.length - 1]; return {pos:t.s, len:t.e - t.s, exact:false}; }
+  return {above:true, pos:above[0].s, len:above[0].e - above[0].s};
 }
 /* What on a street-directory page is not a house number of this street, blanked out (same length, so
    positions still line up with the real text): the heading's own description ("From 200 N Meridian west
@@ -752,7 +756,7 @@ function streetNumbersOnly(P, start, isFrom){
   Q = Q.replace(/\b(?:rooms|apartments|apts|offices)\s*:?[\s\S]{0,4000}?(?:street\s+)?continued/giu, blank);
   // a room list still open at the end of the page continues on the next one
   Q = Q.replace(/\b(?:rooms|apartments|apts|offices)\s*:[\s\S]*$/iu, blank);
-  const next = /[-—–=]{1,3}\s*(?:from|commencing|beginning)\b/giu;
+  const next = /[-—–=]{1,3}\s*(?:from|commencing|beginning)\b/giu;   // the next street's heading
   next.lastIndex = start + (desc ? desc[0].length : 0) + 1;
   const n = next.exec(Q);
   if(n) Q = Q.slice(0, n.index) + blank(Q.slice(n.index));
@@ -1102,14 +1106,15 @@ async function searchInside(item, term){
         const raw = stripMarks(mt.text || '');
         hre.lastIndex = 0;
         const m = hre.exec(raw);
-        if(m && m.index <= 3) heads.push({leaf: pageOf(mt), start: /^(from|commencing|beginning)$/i.test(m[1])});
+        if(m) heads.push({leaf: pageOf(mt), start: /^(from|commencing|beginning)$/i.test(m[1])});
       }
       if(heads.length){
         heads.sort((a, b) => a.leaf - b.leaf);
         const first = (heads.find(h => h.start) || heads[0]).leaf;
-        const last = Math.max(...heads.map(h => h.leaf));
+        // read on from the first page until the number is placed: "Contd" headings are often misread, so
+        // the pages found by search don't tell where the street ends
         const leafs = [];
-        for(let l = first; l <= Math.max(last, first) + 1 && leafs.length < 8; l++) leafs.push(l);
+        for(let l = first; leafs.length < 8; l++) leafs.push(l);
         const P = async leaf => { const t = await pageTexts(item, meta, leaf, () => true); return t.text || null; };
         const h = await scanStreetPages(leafs, P, addr, (leaf, txt, pos, len, ex) =>
           streetHit({year:item.year, id:item.id, title:item.title || item.id, volume:item.volume || '', term}, leaf, txt, pos, len, ex, addr.num));
