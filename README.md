@@ -139,7 +139,7 @@ Requests use `fetch`, falling back to JSONP if that fails. Searches run three at
 
 This fallback returns at most 300 hits per volume and term.
 
-**Adding a collection to the menu.** Edit `collections.js`: copy a line in the right state group and change its `id`, `label`, `q` (the Internet Archive query), and optional `note`. The `id` appears in shared links, so don't change it once published. Suggestions are welcome as [GitHub issues](https://github.com/kamichoy/city-directory-search/issues/new).
+**Adding a collection to the menu.** Edit `collections.js`: copy a line in the right state group and change its `id`, `label`, `q` (the Internet Archive query), and optional `note`. The `id` appears in shared links, so don't change it once published. Suggestions are welcome through the [feedback form](https://docs.google.com/forms/d/e/1FAIpQLSeRDOJSyPZGCEDHtHJRbXHww4__jtgctgO_atAKSTtwa0ASIA/viewform) (no sign-in needed); the tool's **Report a problem** link fills in the collection, years, search terms and page address for you.
 
 **Saved state and privacy.** Your chosen collection, directory list, selections, search terms, and cached item metadata are kept in the browser's `localStorage`, so they persist between visits on the same browser. There are no accounts and no analytics; nothing is sent anywhere other than the Internet Archive. To move a setup to another device, use **Copy link to this collection**.
 
