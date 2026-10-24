@@ -735,6 +735,29 @@ function placeNumber(P, from, num){
   if(below.length && above.length){ const t = below[below.length - 1]; return {pos:t.s, len:t.e - t.s, exact:false}; }
   return below.length ? {below:true} : {above:true, pos:above[0].s, len:above[0].e - above[0].s};
 }
+/* What on a street-directory page is not a house number of this street, blanked out (same length, so
+   positions still line up with the real text): the heading's own description ("From 200 N Meridian west
+   to Warman (L)"), room and apartment lists inside buildings ("Marion Building Rooms: 201 … 305 …" up to
+   "Street continued", including lists that run over a page break), and everything from the next street's
+   heading on. */
+function streetNumbersOnly(P, start, isFrom){
+  const blank = m => ' '.repeat(m.length);
+  let Q = ' '.repeat(start) + P.slice(start);
+  // "From 200 N Meridian west to Warman (L)": the description runs to the ward or zone in parentheses
+  const desc = isFrom ? /^[^()]{0,160}\([^)]{0,20}\)/u.exec(Q.slice(start)) : null;
+  if(desc) Q = Q.slice(0, start) + blank(desc[0]) + Q.slice(start + desc[0].length);
+  // a room list carried over from the previous page ends at the first "Street continued"
+  const cont = /(?:street\s+)?continued/iu.exec(Q.slice(start)), firstList = /\b(?:rooms|apartments|apts|offices)\s*:/iu.exec(Q.slice(start));
+  if(cont && (!firstList || cont.index < firstList.index)) Q = ' '.repeat(start + cont.index) + Q.slice(start + cont.index);
+  Q = Q.replace(/\b(?:rooms|apartments|apts|offices)\s*:?[\s\S]{0,4000}?(?:street\s+)?continued/giu, blank);
+  // a room list still open at the end of the page continues on the next one
+  Q = Q.replace(/\b(?:rooms|apartments|apts|offices)\s*:[\s\S]*$/iu, blank);
+  const next = /[-—–=]{1,3}\s*(?:from|commencing|beginning)\b/giu;
+  next.lastIndex = start + (desc ? desc[0].length : 0) + 1;
+  const n = next.exec(Q);
+  if(n) Q = Q.slice(0, n.index) + blank(Q.slice(n.index));
+  return Q;
+}
 /* Scan heading pages in order (pageText(leaf) -> text) and build one result for the address. */
 async function scanStreetPages(leafs, pageText, addr, make){
   const hre = headingRegex(addr.street);
@@ -744,7 +767,8 @@ async function scanStreetPages(leafs, pageText, addr, make){
     if(!P) continue;
     hre.lastIndex = 0;
     const h = hre.exec(P);
-    const r = placeNumber(P, h ? h.index : 0, addr.num);
+    const from = h ? h.index + h[0].length : 0;
+    const r = placeNumber(streetNumbersOnly(P, from, !!h && /^(from|commencing|beginning)$/i.test(h[1])), from, addr.num);
     if(!r) continue;
     if(r.below){ prev = {leaf, P}; continue; }
     if(r.above && prev) return make(prev.leaf, prev.P, prev.P.length - 1, 0, false, true);
