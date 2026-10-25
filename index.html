@@ -1488,7 +1488,7 @@ function aiMenu(open){
 }
 $('#btnAI').onclick = e => { e.stopPropagation(); aiMenu($('#aiList').hidden); };
 document.addEventListener('click', e => { if(!e.target.closest('.menu')) aiMenu(false); });
-document.addEventListener('keydown', e => { if(e.key === 'Escape' && !$('#aiList').hidden){ aiMenu(false); $('#btnAI').focus(); } });
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && !$('#aiList').hidden){ e.preventDefault(); aiMenu(false); $('#btnAI').focus(); } });
 $('#aiList').addEventListener('keydown', e => {
   if(e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
   e.preventDefault();
@@ -1556,7 +1556,7 @@ const TOUR = [
   {el:'.tablewrap', text:'<b>4. Read the hits</b>, grouped by year, with the text around each one. Look for "Walker C J Madam Mfg Co" and the lawyer "Ransom Freeman B", both at 640 N West.', wait:true},
   {el:firstScanCell, text:'<b>5. Check the scan.</b> Every hit links to its page in the Internet Archive viewer. OCR has errors, so confirm each fact on the page image. <b>Cite</b>, under the link, copies a citation for that page.', wait:true},
   {el:'#btnCsv', text:'<b>6. Keep the results.</b> Export CSV saves every hit, with its year, text, page and scan link, as a spreadsheet.', wait:true},
-  {el:'#btnAI', text:'<b>7. Sort with AI (optional).</b> Copy for AI copies the hits plus instructions for ChatGPT, Copilot or a similar assistant to put them in a table, year by year. It asks for a table only, no written summary. Paste up to about 30 hits; for more, export the CSV and choose <i>Instructions only</i>. Check each row against the scan.', wait:true},
+  {el:['#btnAI', '#aiList'], above:true, text:'<b>7. Sort with AI (optional).</b> Copy for AI copies the hits plus instructions for ChatGPT, Copilot or a similar assistant to put them in a table, year by year, with no written summary. Click it to see the two choices: <i>Results + instructions</i> to paste up to about 30 hits, or <i>Instructions only</i> to go with an exported CSV. Check each row against the scan.', wait:true},
 ];
 let tourAt = -1, spotTimer = null, spotScroll = null, bubbleKey = null;
 /* A step points at one control, a function that finds it, or a list of controls lit up together. */
@@ -1597,7 +1597,9 @@ function placeBubble(r){
   const box = $('#tour'), w = box.offsetWidth, h = box.offsetHeight;
   const vw = document.documentElement.clientWidth, sx = window.scrollX, sy = window.scrollY;
   let left = r.left, top = r.bottom + 10;
-  if(top + h > innerHeight - 10){
+  // a step whose control opens something below it (the Copy for AI menu) keeps its bubble above, out of the way
+  if(TOUR[tourAt] && TOUR[tourAt].above && r.top - h - 10 >= 10) top = r.top - h - 10;
+  else if(top + h > innerHeight - 10){
     if(r.right + 16 + w < vw){ left = r.right + 16; top = Math.max(10, Math.min(r.top, innerHeight - h - 10)); }
     else top = Math.max(10, innerHeight - h - 10);
   }
@@ -1662,7 +1664,7 @@ function tourShow(i){
   if(!r0) return;
   // bring the controls into view: centred if they fit with the bubble, otherwise from their top
   const vh = innerHeight;
-  const y = r0.height + box.offsetHeight + 40 < vh ? r0.top + r0.height / 2 - vh / 2 + box.offsetHeight / 2 : r0.top - 60;
+  const y = r0.height + box.offsetHeight + 40 < vh ? r0.top + r0.height / 2 - vh / 2 + (step.above ? -1 : 1) * box.offsetHeight / 2 : r0.top - 60;
   window.scrollTo({top: window.scrollY + y, behavior: 'smooth'});
   const at = i;
   setTimeout(() => { if(tourAt === at) spotPlaced(); }, 450);
@@ -1706,7 +1708,9 @@ $('#tourNext').onclick = () => tourAt === TOUR.length - 1 ? tourFinish() : tourS
 $('#tourEnd').onclick = () => tourFinish();
 $('#tourRestore').onclick = () => restoreBeforeExample();
 $('#tourKeep').onclick = () => { beforeExample = null; tourShow(-1); };
-document.addEventListener('keydown', e => { if(e.key === 'Escape' && tourAt !== -1){ if(tourAt === -2){ beforeExample = null; tourShow(-1); } else tourFinish(); } });
+// a click can open or close the Copy for AI menu during step 7: resize the lit-up area right away
+document.addEventListener('click', () => { if(spotScroll) setTimeout(spotScroll, 0); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && tourAt !== -1 && !e.defaultPrevented){ if(tourAt === -2){ beforeExample = null; tourShow(-1); } else tourFinish(); } });
 $('#btnExample').onclick = async () => {
   if(!beforeExample) beforeExample = {source, items: JSON.parse(JSON.stringify(items)), terms: $('#terms').value, url: location.pathname + location.search + location.hash};
   tourShow(0);
