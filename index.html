@@ -1488,7 +1488,7 @@ function aiMenu(open){
 }
 $('#btnAI').onclick = e => { e.stopPropagation(); aiMenu($('#aiList').hidden); };
 document.addEventListener('click', e => { if(!e.target.closest('.menu')) aiMenu(false); });
-document.addEventListener('keydown', e => { if(e.key === 'Escape' && !$('#aiList').hidden){ aiMenu(false); $('#btnAI').focus(); } });
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && !$('#aiList').hidden){ e.preventDefault(); aiMenu(false); $('#btnAI').focus(); } });
 $('#aiList').addEventListener('keydown', e => {
   if(e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
   e.preventDefault();
@@ -1554,42 +1554,98 @@ const TOUR = [
   {el:['.pick > label', '#items'], text:'<b>2. Choose the years.</b> Type a year range, click a decade, or tick volumes in the list. 1914 to 1930 are checked here.'},
   {el:'#terms', text:'<b>3. Type what to look for</b>, one per line: an address or a name. Quotes keep words together: <code>"640 N West"</code>.'},
   {el:'.tablewrap', text:'<b>4. Read the hits</b>, grouped by year, with the text around each one. Look for "Walker C J Madam Mfg Co" and the lawyer "Ransom Freeman B", both at 640 N West.', wait:true},
-  {el:() => { const a = document.querySelector('#tbody a'); return a && a.closest('td'); }, text:'<b>5. Check the scan.</b> Every hit links to its page in the Internet Archive viewer. OCR has errors, so confirm each fact on the page image. <b>Cite</b>, under the link, copies a citation for that page.', wait:true},
+  {el:firstScanCell, text:'<b>5. Check the scan.</b> Every hit links to its page in the Internet Archive viewer. OCR has errors, so confirm each fact on the page image. <b>Cite</b>, under the link, copies a citation for that page.', wait:true},
   {el:'#btnCsv', text:'<b>6. Keep the results.</b> Export CSV saves every hit, with its year, text, page and scan link, as a spreadsheet.', wait:true},
-  {el:'#btnAI', text:'<b>7. Sort with AI (optional).</b> Copy for AI copies the hits plus instructions for ChatGPT, Copilot or a similar assistant to put them in a table, year by year. It asks for a table only, no written summary. Paste up to about 30 hits; for more, export the CSV and choose <i>Instructions only</i>. Check each row against the scan.', wait:true},
+  {el:['#btnAI', '#aiList'], above:true, text:'<b>7. Sort with AI (optional).</b> Copy for AI copies the hits plus instructions for ChatGPT, Copilot or a similar assistant to put them in a table, year by year, with no written summary. Click it to see the two choices: <i>Results + instructions</i> to paste up to about 30 hits, or <i>Instructions only</i> to go with an exported CSV. Check each row against the scan.', wait:true},
 ];
-let tourAt = -1, spotTimer = null;
+let tourAt = -1, spotTimer = null, spotScroll = null, bubbleKey = null;
 /* A step points at one control, a function that finds it, or a list of controls lit up together. */
 function tourEls(step){
   const sels = typeof step.el === 'function' ? [step.el()] : [].concat(step.el);
   return sels.map(x => typeof x === 'string' ? document.querySelector(x) : x).filter(Boolean);
 }
+/* The part of an element that can be seen: a row scrolled out of the results table is cut off by the table's
+   scroll box, so its rectangle is trimmed to every scrolling container around it. Null when none of it shows. */
+function shownRect(el){
+  let {left, top, right, bottom} = el.getBoundingClientRect();
+  for(let p = el.parentElement; p && p !== document.body; p = p.parentElement){
+    const cs = getComputedStyle(p);
+    if(cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+    const q = p.getBoundingClientRect();
+    let qt = q.top;
+    const head = p.querySelector(':scope > table > thead th');   // the sticky column headings cover the top of the table
+    if(head) qt = Math.max(qt, head.getBoundingClientRect().bottom);
+    left = Math.max(left, q.left); top = Math.max(top, qt); right = Math.min(right, q.right); bottom = Math.min(bottom, q.bottom);
+  }
+  return right - left > 2 && bottom - top > 2 ? {left, top, right, bottom} : null;
+}
 function unionRect(els){
-  const rs = els.map(e => e.getBoundingClientRect());
+  const rs = els.map(shownRect).filter(Boolean);
+  if(!rs.length) return null;
   const left = Math.min(...rs.map(r => r.left)), top = Math.min(...rs.map(r => r.top));
   const right = Math.max(...rs.map(r => r.right)), bottom = Math.max(...rs.map(r => r.bottom));
   return {left, top, right, bottom, width: right - left, height: bottom - top};
 }
-/* Keep the cover's opening on the current controls; results load and the table grows while the tour runs. */
+/* The Scan cell of the first result row that is in view, so the highlight moves to another row when the
+   results table is scrolled. */
+function firstScanCell(){
+  const cells = [...document.querySelectorAll('#tbody td')].filter(td => td.querySelector(':scope > a'));
+  return cells.find(td => { const r = shownRect(td); return r && r.bottom - r.top >= td.getBoundingClientRect().height - 2; }) || cells[0] || null;
+}
+/* The bubble goes below the lit-up area; if that is off screen, beside it; otherwise as low as fits. */
+function placeBubble(r){
+  const box = $('#tour'), w = box.offsetWidth, h = box.offsetHeight;
+  const vw = document.documentElement.clientWidth, sx = window.scrollX, sy = window.scrollY;
+  let left = r.left, top = r.bottom + 10;
+  // a step whose control opens something below it (the Copy for AI menu) keeps its bubble above, out of the way
+  if(TOUR[tourAt] && TOUR[tourAt].above && r.top - h - 10 >= 10) top = r.top - h - 10;
+  else if(top + h > innerHeight - 10){
+    if(r.right + 16 + w < vw){ left = r.right + 16; top = Math.max(10, Math.min(r.top, innerHeight - h - 10)); }
+    else top = Math.max(10, innerHeight - h - 10);
+  }
+  box.style.left = (Math.max(16, Math.min(left, vw - w - 16)) + sx) + 'px';
+  box.style.top = (top + sy) + 'px';
+}
+/* Keep the cover's opening on the current controls: results load, the table grows, and people scroll
+   the page or the results while the tour runs. */
 function tourSpot(els){
   const spot = $('#tourSpot');
   clearInterval(spotTimer); spotTimer = null;
+  if(spotScroll){ document.removeEventListener('scroll', spotScroll, true); window.removeEventListener('resize', spotScroll); spotScroll = null; }
+  bubbleKey = null;
   if(els === null){ spot.hidden = true; return; }
   const place = () => {
-    if(els.some(e => !e.isConnected) && TOUR[tourAt]) els = tourEls(TOUR[tourAt]);
+    const step = TOUR[tourAt];
+    if(step && (typeof step.el === 'function' || els.some(e => !e.isConnected))) els = tourEls(step);
     const pad = 6, sx = window.scrollX, sy = window.scrollY;
-    if(!els.length){   // nothing to point at: cover everything (a zero-size opening)
+    const r = els.length ? unionRect(els) : null;
+    if(!r){   // nothing in view to point at: cover everything (a zero-size opening)
       Object.assign(spot.style, {left: (sx + innerWidth / 2) + 'px', top: (sy + innerHeight / 2) + 'px', width: '0px', height: '0px', outlineWidth: '0'});
       return;
     }
-    const r = unionRect(els);
     Object.assign(spot.style, {left: (r.left + sx - pad) + 'px', top: (r.top + sy - pad) + 'px',
       width: (r.width + pad * 2) + 'px', height: (r.height + pad * 2) + 'px', outlineWidth: ''});
+    // move the bubble with the area, but only once it has been placed and only when the area itself moved on the page
+    const key = [r.left + sx, r.top + sy, r.width, r.height].map(Math.round).join();
+    if(bubbleKey !== null && key !== bubbleKey){ bubbleKey = key; placeBubble(r); }
   };
   spot.hidden = false;
   place();
-  if(els.length) spotTimer = setInterval(place, 300);
+  if(els.length || (TOUR[tourAt] && typeof TOUR[tourAt].el === 'function')){
+    spotTimer = setInterval(place, 300);
+    let queued = false;
+    spotScroll = () => { if(!queued){ queued = true; requestAnimationFrame(() => { queued = false; place(); }); } };
+    document.addEventListener('scroll', spotScroll, {capture: true, passive: true});
+    window.addEventListener('resize', spotScroll);
+  }
+  spotPlaced = () => {   // after the step's scroll into view: place the bubble and let it follow from then on
+    const r = els.length ? unionRect(els) : null;
+    if(!r) return;
+    placeBubble(r);
+    bubbleKey = [r.left + window.scrollX, r.top + window.scrollY, r.width, r.height].map(Math.round).join();
+  };
 }
+let spotPlaced = () => {};
 function tourShow(i){
   const box = $('#tour');
   if(i < 0 || i >= TOUR.length){ box.hidden = true; tourAt = -1; tourSpot(null); return; }
@@ -1604,22 +1660,14 @@ function tourShow(i){
   if(waiting) $('#tourText').innerHTML += '<br><i>Searching… this step continues when results appear.</i>';
   box.hidden = false;
   tourSpot(els);   // no controls on the page yet (no results): cover everything
-  if(!els.length) return;
+  const r0 = els.length ? unionRect(els) : null;
+  if(!r0) return;
   // bring the controls into view: centred if they fit with the bubble, otherwise from their top
-  const r0 = unionRect(els), vh = innerHeight;
-  const y = r0.height + box.offsetHeight + 40 < vh ? r0.top + r0.height / 2 - vh / 2 + box.offsetHeight / 2 : r0.top - 60;
+  const vh = innerHeight;
+  const y = r0.height + box.offsetHeight + 40 < vh ? r0.top + r0.height / 2 - vh / 2 + (step.above ? -1 : 1) * box.offsetHeight / 2 : r0.top - 60;
   window.scrollTo({top: window.scrollY + y, behavior: 'smooth'});
-  setTimeout(() => {   // place the bubble below the controls; if that is off screen, beside them; else over their bottom
-    const r = unionRect(els), w = box.offsetWidth, h = box.offsetHeight;
-    const vw = document.documentElement.clientWidth, sx = window.scrollX, sy = window.scrollY;
-    let left = r.left, top = r.bottom + 10;
-    if(top + h > innerHeight - 10){
-      if(r.right + 16 + w < vw){ left = r.right + 16; top = Math.max(10, Math.min(r.top, innerHeight - h - 10)); }
-      else top = Math.max(10, innerHeight - h - 10);
-    }
-    box.style.left = (Math.max(16, Math.min(left, vw - w - 16)) + sx) + 'px';
-    box.style.top = (top + sy) + 'px';
-  }, 450);
+  const at = i;
+  setTimeout(() => { if(tourAt === at) spotPlaced(); }, 450);
 }
 /* The example replaces the collection, list and search terms. What was there before is kept, and the
    tour ends by offering to put it back: an empty page for a first visit, or the person's own search. */
@@ -1660,7 +1708,9 @@ $('#tourNext').onclick = () => tourAt === TOUR.length - 1 ? tourFinish() : tourS
 $('#tourEnd').onclick = () => tourFinish();
 $('#tourRestore').onclick = () => restoreBeforeExample();
 $('#tourKeep').onclick = () => { beforeExample = null; tourShow(-1); };
-document.addEventListener('keydown', e => { if(e.key === 'Escape' && tourAt !== -1){ if(tourAt === -2){ beforeExample = null; tourShow(-1); } else tourFinish(); } });
+// a click can open or close the Copy for AI menu during step 7: resize the lit-up area right away
+document.addEventListener('click', () => { if(spotScroll) setTimeout(spotScroll, 0); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && tourAt !== -1 && !e.defaultPrevented){ if(tourAt === -2){ beforeExample = null; tourShow(-1); } else tourFinish(); } });
 $('#btnExample').onclick = async () => {
   if(!beforeExample) beforeExample = {source, items: JSON.parse(JSON.stringify(items)), terms: $('#terms').value, url: location.pathname + location.search + location.hash};
   tourShow(0);
