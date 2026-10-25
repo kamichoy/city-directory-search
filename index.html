@@ -47,6 +47,15 @@ select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px
 [hidden]{display:none !important}
 .cite{display:block;margin-top:4px;padding:1px 6px;font-size:11px;color:var(--muted)}
 .approx{color:var(--err)}
+.linkish{border:0;background:none;padding:0;color:var(--accent);text-decoration:underline;font:inherit;cursor:pointer}
+header p.example{margin-top:6px}
+.tour{position:absolute;z-index:30;width:300px;max-width:calc(100vw - 32px);background:var(--ink);color:var(--bg);border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.45;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.tour b{color:inherit}
+.tour-nav{display:flex;gap:10px;align-items:center;margin-top:10px}
+.tour-nav span{opacity:.7;font-size:12px;margin-right:auto}
+.tour-nav button{padding:4px 10px;font-size:12px}
+.tour-nav .linkish{color:var(--bg)}
+.tour-target{outline:3px solid var(--accent);outline-offset:3px;border-radius:6px}
 .menu{position:relative;display:inline-block}
 .menu-list{position:absolute;z-index:20;top:calc(100% + 4px);left:0;width:300px;max-width:calc(100vw - 32px);background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:4px}
 .menu-list button{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:6px;line-height:1.35}
@@ -95,7 +104,12 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
 <header>
   <h1>City Directory Search</h1>
   <p>Search the OCR full text of city directories on the Internet Archive across many years at once, without downloading the scans. Each result links to its page scan.</p>
+  <p class="example">New here? <button id="btnExample" class="linkish">Try an example</button>: Madam C. J. Walker's company at 640 N West Street, Indianapolis, 1914 to 1930.</p>
 </header>
+<div id="tour" class="tour" role="dialog" aria-live="polite" hidden>
+  <div id="tourText"></div>
+  <div class="tour-nav"><span id="tourStep"></span><button id="tourNext">Next</button><button id="tourEnd" class="linkish">Close</button></div>
+</div>
 <main>
 <div>
   <section>
@@ -455,7 +469,7 @@ function setSource(s, load = true){
   try{ history.replaceState(null, '', location.pathname + sourceParams(s) + location.hash); }catch(e){}
   showSource(s);
   const q = sourceQuery(s);
-  if(load && q) loadQuery(q);
+  if(load && q) return loadQuery(q);
 }
 $('#source').addEventListener('change', e => {
   const v = e.target.value;
@@ -1518,6 +1532,60 @@ function feedbackURL(){
   return FEEDBACK.form + '?' + q.toString();
 }
 document.addEventListener('click', e => { const a = e.target.closest('a.report'); if(a) a.href = feedbackURL(); }, true);
+
+/* ---------- "Try an example" ----------
+   Loads a real search (Indianapolis, 1914-1930, "640 N West": Madam C. J. Walker's company, and her attorney
+   F. B. Ransom) and walks through the page in a few short steps, pointing at the real controls. */
+const EXAMPLE = {source:{type:'preset', id:'indianapolis'}, from:1914, to:1930, terms:'"640 N West"'};
+const TOUR = [
+  {el:'#source', text:'<b>1. Pick the directories.</b> Choose a city\'s collection. This example uses Indianapolis.'},
+  {el:'#items', text:'<b>2. Choose the years.</b> Use the decade buttons or a year range. 1914 to 1930 are checked here.'},
+  {el:'#terms', text:'<b>3. Type what to look for</b>, one per line: an address or a name. Quotes keep words together: <code>"640 N West"</code>.'},
+  {el:'.tablewrap', text:'<b>4. Read the hits</b>, grouped by year, with the text around each one. Look for "Walker C J Madam Mfg Co" and the lawyer "Ransom Freeman B", both at 640 N West.', wait:true},
+  {el:'#tbody a', text:'<b>5. Check the scan.</b> Every hit links to its page in the Internet Archive viewer. OCR has errors, so confirm each fact on the page image.', wait:true},
+  {el:'#btnCsv', text:'<b>6. Keep the results.</b> Export CSV, use Cite for a page citation, or Copy for AI to sort the hits into a table you then check.', wait:true},
+];
+let tourAt = -1;
+function tourShow(i){
+  document.querySelectorAll('.tour-target').forEach(e => e.classList.remove('tour-target'));
+  const box = $('#tour');
+  if(i < 0 || i >= TOUR.length){ box.hidden = true; tourAt = -1; return; }
+  tourAt = i;
+  const step = TOUR[i], el = document.querySelector(step.el);
+  $('#tourText').innerHTML = step.text;
+  $('#tourStep').textContent = `${i + 1} of ${TOUR.length}`;
+  $('#tourNext').textContent = i === TOUR.length - 1 ? 'Done' : 'Next';
+  const waiting = step.wait && !results.length;
+  $('#tourNext').disabled = waiting;
+  if(waiting) $('#tourText').innerHTML += '<br><i>Searching… this step continues when results appear.</i>';
+  box.hidden = false;
+  if(!el) return;
+  el.classList.add('tour-target');
+  el.scrollIntoView({block:'center', behavior:'smooth'});
+  setTimeout(() => {   // place the bubble below the element, kept on screen
+    const r = el.getBoundingClientRect(), w = box.offsetWidth, vw = document.documentElement.clientWidth;
+    box.style.left = Math.max(16, Math.min(r.left + window.scrollX, window.scrollX + vw - w - 16)) + 'px';
+    box.style.top = (r.bottom + window.scrollY + 10) + 'px';
+  }, 350);
+}
+$('#tourNext').onclick = () => tourShow(tourAt + 1);
+$('#tourEnd').onclick = () => tourShow(-1);
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && tourAt >= 0) tourShow(-1); });
+$('#btnExample').onclick = async () => {
+  tourShow(0);
+  await setSource(EXAMPLE.source);
+  selectRange(EXAMPLE.from, EXAMPLE.to);
+  $('#terms').value = EXAMPLE.terms;
+  $('#filter').value = '';
+  const run = $('#btnRun').onclick();
+  // wake a waiting step when the first results arrive
+  const poll = setInterval(() => {
+    if(tourAt >= 0 && TOUR[tourAt].wait && results.length && $('#tourNext').disabled) tourShow(tourAt);
+    if(!$('#btnRun').disabled) clearInterval(poll);
+  }, 500);
+  await run;
+  if(tourAt >= 0) tourShow(tourAt);
+};
 
 /* ---------- init ----------
    A link (?c= etc.) wins; otherwise reopen the last collection from its saved list. Nothing is loaded
