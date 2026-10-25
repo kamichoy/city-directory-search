@@ -48,7 +48,12 @@ select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px
 .cite{display:block;margin-top:4px;padding:1px 6px;font-size:11px;color:var(--muted)}
 .approx{color:var(--err)}
 .linkish{border:0;background:none;padding:0;color:var(--accent);text-decoration:underline;font:inherit;cursor:pointer}
-header p.example{margin-top:6px}
+header p.example{margin-top:8px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+button.example-btn{padding:2px 10px;font-size:13px;border-color:var(--accent);color:var(--accent);background:transparent}
+/* shown once, to someone who has never chosen a collection, in the empty results table */
+.invite{padding:34px 20px;text-align:center;color:var(--ink);font-size:14px;line-height:1.5}
+.invite p{margin:0 0 12px}
+.invite span{color:var(--muted)}
 .tour{position:absolute;z-index:30;width:300px;max-width:calc(100vw - 32px);background:var(--ink);color:var(--bg);border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.45;box-shadow:0 8px 24px rgba(0,0,0,.25)}
 .tour b{color:inherit}
 .tour code{background:rgba(255,255,255,.18);color:inherit;padding:1px 5px}
@@ -58,6 +63,9 @@ header p.example{margin-top:6px}
 .tour-nav button{padding:4px 10px;font-size:12px}
 .tour-nav .linkish{color:var(--bg)}
 .tour-target{outline:3px solid var(--accent);outline-offset:3px;border-radius:6px}
+/* the gray cover: a see-through box over the step's control, whose huge shadow darkens the rest of the page.
+   It lets clicks through, so the page still works during the tour. */
+.tour-spot{position:absolute;z-index:29;pointer-events:none;border-radius:8px;box-shadow:0 0 0 200vmax rgba(20,20,20,.5);transition:left .25s,top .25s,width .25s,height .25s}
 .menu{position:relative;display:inline-block}
 .menu-list{position:absolute;z-index:20;top:calc(100% + 4px);left:0;width:300px;max-width:calc(100vw - 32px);background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:4px}
 .menu-list button{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:6px;line-height:1.35}
@@ -106,8 +114,9 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
 <header>
   <h1>City Directory Search</h1>
   <p>Search the OCR full text of city directories on the Internet Archive across many years at once, without downloading the scans. Each result links to its page scan.</p>
-  <p class="example">New here? <button id="btnExample" class="linkish">Try an example</button>: Madam C. J. Walker's company at 640 N West Street, Indianapolis, 1914 to 1930.</p>
+  <p class="example"><button id="btnExample" class="example-btn">Try an example</button> <span>Madam C. J. Walker's company at 640 N West Street, Indianapolis, 1914 to 1930.</span></p>
 </header>
+<div id="tourSpot" class="tour-spot" hidden></div>
 <div id="tour" class="tour" role="dialog" aria-live="polite" hidden>
   <div id="tourText"></div>
   <div class="tour-nav" id="tourNav"><span id="tourStep"></span><button id="tourNext">Next</button><button id="tourEnd" class="linkish">Close</button></div>
@@ -467,6 +476,7 @@ function showSource(s){
   if(s && s.type === 'custom') $('#iaQuery').value = s.q || '';
 }
 function setSource(s, load = true){
+  hideInvite();
   source = s;
   store.set(LS_SOURCE, s);
   try{ history.replaceState(null, '', location.pathname + sourceParams(s) + location.hash); }catch(e){}
@@ -1548,11 +1558,31 @@ const TOUR = [
   {el:'#tbody a', text:'<b>5. Check the scan.</b> Every hit links to its page in the Internet Archive viewer. OCR has errors, so confirm each fact on the page image.', wait:true},
   {el:'#btnCsv', text:'<b>6. Keep the results.</b> Export CSV, use Cite for a page citation, or Copy for AI to sort the hits into a table you then check.', wait:true},
 ];
-let tourAt = -1;
+let tourAt = -1, spotTimer = null;
+/* Keep the cover's opening on the current control; results load and the table grows while the tour runs. */
+function tourSpot(el){
+  const spot = $('#tourSpot');
+  clearInterval(spotTimer); spotTimer = null;
+  if(el === null){ spot.hidden = true; return; }
+  const place = () => {
+    if(el && !el.isConnected) el = document.querySelector(TOUR[tourAt] ? TOUR[tourAt].el : null);
+    const pad = 6, sx = window.scrollX, sy = window.scrollY;
+    if(!el){   // nothing to point at: cover everything (a zero-size opening)
+      Object.assign(spot.style, {left: (sx + innerWidth / 2) + 'px', top: (sy + innerHeight / 2) + 'px', width: '0px', height: '0px'});
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    Object.assign(spot.style, {left: (r.left + sx - pad) + 'px', top: (r.top + sy - pad) + 'px',
+      width: (r.width + pad * 2) + 'px', height: (r.height + pad * 2) + 'px'});
+  };
+  spot.hidden = false;
+  place();
+  if(el) spotTimer = setInterval(place, 300);
+}
 function tourShow(i){
   document.querySelectorAll('.tour-target').forEach(e => e.classList.remove('tour-target'));
   const box = $('#tour');
-  if(i < 0 || i >= TOUR.length){ box.hidden = true; tourAt = -1; return; }
+  if(i < 0 || i >= TOUR.length){ box.hidden = true; tourAt = -1; tourSpot(null); return; }
   tourAt = i;
   $('#tourNav').hidden = false; $('#tourDone').hidden = true;
   const step = TOUR[i], el = document.querySelector(step.el);
@@ -1563,6 +1593,7 @@ function tourShow(i){
   $('#tourNext').disabled = waiting;
   if(waiting) $('#tourText').innerHTML += '<br><i>Searching… this step continues when results appear.</i>';
   box.hidden = false;
+  tourSpot(el || undefined);   // a control not on the page yet (no results): cover everything
   if(!el) return;
   el.classList.add('tour-target');
   el.scrollIntoView({block:'center', behavior:'smooth'});
@@ -1579,6 +1610,7 @@ function tourFinish(){
   if(!beforeExample){ tourShow(-1); return; }
   document.querySelectorAll('.tour-target').forEach(e => e.classList.remove('tour-target'));
   tourAt = -2;
+  tourSpot(undefined);   // the closing question: cover the whole page
   $('#tourText').innerHTML = '<b>Done with the example?</b> Clear it to go back to ' +
     (beforeExample.source ? 'the search you had before.' : 'an empty page and start your own search.');
   $('#tourNav').hidden = true; $('#tourDone').hidden = false;
@@ -1629,6 +1661,20 @@ $('#btnExample').onclick = async () => {
   if(tourAt >= 0) tourShow(tourAt);
 };
 
+/* First visit: an invitation to the example in the empty results table. It goes away for good once
+   a collection is chosen or the example is run, so people who come back don't see it. */
+const LS_SEEN = 'cds_seen_v1';
+function showInvite(){
+  $('#tbody').innerHTML = '<tr><td colspan="4" class="invite"><p><b>First time here?</b> <span>See a one-minute example: ' +
+    'Madam C. J. Walker\'s company at 640 N West, Indianapolis.</span></p>' +
+    '<button class="primary" id="btnInvite">Try the example</button></td></tr>';
+  $('#btnInvite').onclick = () => $('#btnExample').click();
+}
+function hideInvite(){
+  store.set(LS_SEEN, true);
+  if($('#btnInvite')) $('#tbody').innerHTML = '<tr><td colspan="4" class="empty">Results will appear here</td></tr>';
+}
+
 /* ---------- init ----------
    A link (?c= etc.) wins; otherwise reopen the last collection from its saved list. Nothing is loaded
    until a collection is chosen, so the tool doesn't assume any one city. */
@@ -1644,7 +1690,10 @@ renderItems();
     showSource(null);
     // lists saved by earlier versions had no recorded source; they were the Indianapolis collection by default
     if(items.length && items.some(i => /^polksindianapol|^citydir\d{4}cdap/.test(i.id))) setSource({type:'preset', id:'indianapolis'}, false);
-    else status('Choose a directory collection to begin.');
+    else{
+      status('Choose a directory collection to begin.');
+      if(!items.length && !store.get(LS_SEEN, false)) showInvite();
+    }
   }
 })();
 })();
