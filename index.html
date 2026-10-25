@@ -110,7 +110,8 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
 </header>
 <div id="tour" class="tour" role="dialog" aria-live="polite" hidden>
   <div id="tourText"></div>
-  <div class="tour-nav"><span id="tourStep"></span><button id="tourNext">Next</button><button id="tourEnd" class="linkish">Close</button></div>
+  <div class="tour-nav" id="tourNav"><span id="tourStep"></span><button id="tourNext">Next</button><button id="tourEnd" class="linkish">Close</button></div>
+  <div class="tour-nav" id="tourDone" hidden><button id="tourRestore">Clear the example</button><button id="tourKeep" class="linkish">Keep these results</button></div>
 </div>
 <main>
 <div>
@@ -1553,6 +1554,7 @@ function tourShow(i){
   const box = $('#tour');
   if(i < 0 || i >= TOUR.length){ box.hidden = true; tourAt = -1; return; }
   tourAt = i;
+  $('#tourNav').hidden = false; $('#tourDone').hidden = true;
   const step = TOUR[i], el = document.querySelector(step.el);
   $('#tourText').innerHTML = step.text;
   $('#tourStep').textContent = `${i + 1} of ${TOUR.length}`;
@@ -1570,10 +1572,48 @@ function tourShow(i){
     box.style.top = (r.bottom + window.scrollY + 10) + 'px';
   }, 350);
 }
-$('#tourNext').onclick = () => tourShow(tourAt + 1);
-$('#tourEnd').onclick = () => tourShow(-1);
-document.addEventListener('keydown', e => { if(e.key === 'Escape' && tourAt >= 0) tourShow(-1); });
+/* The example replaces the collection, list and search terms. What was there before is kept, and the
+   tour ends by offering to put it back: an empty page for a first visit, or the person's own search. */
+let beforeExample = null;
+function tourFinish(){
+  if(!beforeExample){ tourShow(-1); return; }
+  document.querySelectorAll('.tour-target').forEach(e => e.classList.remove('tour-target'));
+  tourAt = -2;
+  $('#tourText').innerHTML = '<b>Done with the example?</b> Clear it to go back to ' +
+    (beforeExample.source ? 'the search you had before.' : 'an empty page and start your own search.');
+  $('#tourNav').hidden = true; $('#tourDone').hidden = false;
+  const box = $('#tour');
+  box.hidden = false;
+  box.style.left = Math.max(16, (document.documentElement.clientWidth - box.offsetWidth) / 2 + window.scrollX) + 'px';
+  box.style.top = (window.scrollY + 120) + 'px';
+  $('#tourRestore').focus();
+}
+function restoreBeforeExample(){
+  const b = beforeExample;
+  beforeExample = null;
+  tourShow(-1);
+  if(!b) return;
+  if(abortCtl){ stopFlag = true; abortCtl.abort(); if(releasePool) releasePool(); }
+  results = []; lastRun = null; render();
+  items = b.items; saveItems();
+  $('#terms').value = b.terms; store.set(LS_TERMS, b.terms);
+  $('#filter').value = '';
+  source = b.source; store.set(LS_SOURCE, b.source);
+  try{ history.replaceState(null, '', b.url); }catch(e){}
+  showSource(b.source);
+  $('#prog').style.width = '0';
+  const msg = b.source ? 'Example cleared. Your previous search is back.' : 'Example cleared. Choose a directory collection to begin.';
+  status(msg);
+  // a search still winding down would overwrite the message when it stops
+  const t = setInterval(() => { if(!$('#btnRun').disabled){ clearInterval(t); results = []; render(); status(msg); } }, 300);
+}
+$('#tourNext').onclick = () => tourAt === TOUR.length - 1 ? tourFinish() : tourShow(tourAt + 1);
+$('#tourEnd').onclick = () => tourFinish();
+$('#tourRestore').onclick = () => restoreBeforeExample();
+$('#tourKeep').onclick = () => { beforeExample = null; tourShow(-1); };
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && tourAt !== -1){ if(tourAt === -2){ beforeExample = null; tourShow(-1); } else tourFinish(); } });
 $('#btnExample').onclick = async () => {
+  if(!beforeExample) beforeExample = {source, items: JSON.parse(JSON.stringify(items)), terms: $('#terms').value, url: location.pathname + location.search + location.hash};
   tourShow(0);
   await setSource(EXAMPLE.source);
   selectRange(EXAMPLE.from, EXAMPLE.to);
@@ -1582,7 +1622,7 @@ $('#btnExample').onclick = async () => {
   const run = $('#btnRun').onclick();
   // wake a waiting step when the first results arrive
   const poll = setInterval(() => {
-    if(tourAt >= 0 && TOUR[tourAt].wait && results.length && $('#tourNext').disabled) tourShow(tourAt);
+    if(tourAt >= 0 && TOUR[tourAt].wait && results.length && $('#tourNext').disabled) tourShow(tourAt);   // tourAt -2 = final question
     if(!$('#btnRun').disabled) clearInterval(poll);
   }, 500);
   await run;
