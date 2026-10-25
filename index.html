@@ -62,10 +62,9 @@ button.example-btn{padding:2px 10px;font-size:13px;border-color:var(--accent);co
 .tour-nav span{opacity:.7;font-size:12px;margin-right:auto}
 .tour-nav button{padding:4px 10px;font-size:12px}
 .tour-nav .linkish{color:var(--bg)}
-.tour-target{outline:3px solid var(--accent);outline-offset:3px;border-radius:6px}
 /* the gray cover: a see-through box over the step's control, whose huge shadow darkens the rest of the page.
    It lets clicks through, so the page still works during the tour. */
-.tour-spot{position:absolute;z-index:29;pointer-events:none;border-radius:8px;box-shadow:0 0 0 200vmax rgba(20,20,20,.5);transition:left .25s,top .25s,width .25s,height .25s}
+.tour-spot{position:absolute;z-index:29;pointer-events:none;border-radius:8px;outline:3px solid var(--accent);box-shadow:0 0 0 200vmax rgba(20,20,20,.5);transition:left .25s,top .25s,width .25s,height .25s}
 .menu{position:relative;display:inline-block}
 .menu-list{position:absolute;z-index:20;top:calc(100% + 4px);left:0;width:300px;max-width:calc(100vw - 32px);background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:4px}
 .menu-list button{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:6px;line-height:1.35}
@@ -1552,41 +1551,51 @@ document.addEventListener('click', e => { const a = e.target.closest('a.report')
 const EXAMPLE = {source:{type:'preset', id:'indianapolis'}, from:1914, to:1930, terms:'"640 N West"'};
 const TOUR = [
   {el:'#source', text:'<b>1. Pick the directories.</b> Choose a city\'s collection. This example uses Indianapolis.'},
-  {el:'#items', text:'<b>2. Choose the years.</b> Use the decade buttons or a year range. 1914 to 1930 are checked here.'},
+  {el:['.pick > label', '#items'], text:'<b>2. Choose the years.</b> Type a year range, click a decade, or tick volumes in the list. 1914 to 1930 are checked here.'},
   {el:'#terms', text:'<b>3. Type what to look for</b>, one per line: an address or a name. Quotes keep words together: <code>"640 N West"</code>.'},
   {el:'.tablewrap', text:'<b>4. Read the hits</b>, grouped by year, with the text around each one. Look for "Walker C J Madam Mfg Co" and the lawyer "Ransom Freeman B", both at 640 N West.', wait:true},
-  {el:'#tbody a', text:'<b>5. Check the scan.</b> Every hit links to its page in the Internet Archive viewer. OCR has errors, so confirm each fact on the page image. <b>Cite</b>, under the link, copies a citation for that page.', wait:true},
+  {el:() => { const a = document.querySelector('#tbody a'); return a && a.closest('td'); }, text:'<b>5. Check the scan.</b> Every hit links to its page in the Internet Archive viewer. OCR has errors, so confirm each fact on the page image. <b>Cite</b>, under the link, copies a citation for that page.', wait:true},
   {el:'#btnCsv', text:'<b>6. Keep the results.</b> Export CSV saves every hit, with its year, text, page and scan link, as a spreadsheet.', wait:true},
   {el:'#btnAI', text:'<b>7. Sort with AI (optional).</b> Copy for AI copies the hits plus instructions for ChatGPT, Copilot or a similar assistant to put them in a table, year by year. It asks for a table only, no written summary. Paste up to about 30 hits; for more, export the CSV and choose <i>Instructions only</i>. Check each row against the scan.', wait:true},
 ];
 let tourAt = -1, spotTimer = null;
-/* Keep the cover's opening on the current control; results load and the table grows while the tour runs. */
-function tourSpot(el){
+/* A step points at one control, a function that finds it, or a list of controls lit up together. */
+function tourEls(step){
+  const sels = typeof step.el === 'function' ? [step.el()] : [].concat(step.el);
+  return sels.map(x => typeof x === 'string' ? document.querySelector(x) : x).filter(Boolean);
+}
+function unionRect(els){
+  const rs = els.map(e => e.getBoundingClientRect());
+  const left = Math.min(...rs.map(r => r.left)), top = Math.min(...rs.map(r => r.top));
+  const right = Math.max(...rs.map(r => r.right)), bottom = Math.max(...rs.map(r => r.bottom));
+  return {left, top, right, bottom, width: right - left, height: bottom - top};
+}
+/* Keep the cover's opening on the current controls; results load and the table grows while the tour runs. */
+function tourSpot(els){
   const spot = $('#tourSpot');
   clearInterval(spotTimer); spotTimer = null;
-  if(el === null){ spot.hidden = true; return; }
+  if(els === null){ spot.hidden = true; return; }
   const place = () => {
-    if(el && !el.isConnected) el = document.querySelector(TOUR[tourAt] ? TOUR[tourAt].el : null);
+    if(els.some(e => !e.isConnected) && TOUR[tourAt]) els = tourEls(TOUR[tourAt]);
     const pad = 6, sx = window.scrollX, sy = window.scrollY;
-    if(!el){   // nothing to point at: cover everything (a zero-size opening)
-      Object.assign(spot.style, {left: (sx + innerWidth / 2) + 'px', top: (sy + innerHeight / 2) + 'px', width: '0px', height: '0px'});
+    if(!els.length){   // nothing to point at: cover everything (a zero-size opening)
+      Object.assign(spot.style, {left: (sx + innerWidth / 2) + 'px', top: (sy + innerHeight / 2) + 'px', width: '0px', height: '0px', outlineWidth: '0'});
       return;
     }
-    const r = el.getBoundingClientRect();
+    const r = unionRect(els);
     Object.assign(spot.style, {left: (r.left + sx - pad) + 'px', top: (r.top + sy - pad) + 'px',
-      width: (r.width + pad * 2) + 'px', height: (r.height + pad * 2) + 'px'});
+      width: (r.width + pad * 2) + 'px', height: (r.height + pad * 2) + 'px', outlineWidth: ''});
   };
   spot.hidden = false;
   place();
-  if(el) spotTimer = setInterval(place, 300);
+  if(els.length) spotTimer = setInterval(place, 300);
 }
 function tourShow(i){
-  document.querySelectorAll('.tour-target').forEach(e => e.classList.remove('tour-target'));
   const box = $('#tour');
   if(i < 0 || i >= TOUR.length){ box.hidden = true; tourAt = -1; tourSpot(null); return; }
   tourAt = i;
   $('#tourNav').hidden = false; $('#tourDone').hidden = true;
-  const step = TOUR[i], el = document.querySelector(step.el);
+  const step = TOUR[i], els = tourEls(step);
   $('#tourText').innerHTML = step.text;
   $('#tourStep').textContent = `${i + 1} of ${TOUR.length}`;
   $('#tourNext').textContent = i === TOUR.length - 1 ? 'Done' : 'Next';
@@ -1594,24 +1603,31 @@ function tourShow(i){
   $('#tourNext').disabled = waiting;
   if(waiting) $('#tourText').innerHTML += '<br><i>Searching… this step continues when results appear.</i>';
   box.hidden = false;
-  tourSpot(el || undefined);   // a control not on the page yet (no results): cover everything
-  if(!el) return;
-  el.classList.add('tour-target');
-  el.scrollIntoView({block:'center', behavior:'smooth'});
-  setTimeout(() => {   // place the bubble below the element, kept on screen
-    const r = el.getBoundingClientRect(), w = box.offsetWidth, vw = document.documentElement.clientWidth;
-    box.style.left = Math.max(16, Math.min(r.left + window.scrollX, window.scrollX + vw - w - 16)) + 'px';
-    box.style.top = (r.bottom + window.scrollY + 10) + 'px';
-  }, 350);
+  tourSpot(els);   // no controls on the page yet (no results): cover everything
+  if(!els.length) return;
+  // bring the controls into view: centred if they fit with the bubble, otherwise from their top
+  const r0 = unionRect(els), vh = innerHeight;
+  const y = r0.height + box.offsetHeight + 40 < vh ? r0.top + r0.height / 2 - vh / 2 + box.offsetHeight / 2 : r0.top - 60;
+  window.scrollTo({top: window.scrollY + y, behavior: 'smooth'});
+  setTimeout(() => {   // place the bubble below the controls; if that is off screen, beside them; else over their bottom
+    const r = unionRect(els), w = box.offsetWidth, h = box.offsetHeight;
+    const vw = document.documentElement.clientWidth, sx = window.scrollX, sy = window.scrollY;
+    let left = r.left, top = r.bottom + 10;
+    if(top + h > innerHeight - 10){
+      if(r.right + 16 + w < vw){ left = r.right + 16; top = Math.max(10, Math.min(r.top, innerHeight - h - 10)); }
+      else top = Math.max(10, innerHeight - h - 10);
+    }
+    box.style.left = (Math.max(16, Math.min(left, vw - w - 16)) + sx) + 'px';
+    box.style.top = (top + sy) + 'px';
+  }, 450);
 }
 /* The example replaces the collection, list and search terms. What was there before is kept, and the
    tour ends by offering to put it back: an empty page for a first visit, or the person's own search. */
 let beforeExample = null;
 function tourFinish(){
   if(!beforeExample){ tourShow(-1); return; }
-  document.querySelectorAll('.tour-target').forEach(e => e.classList.remove('tour-target'));
   tourAt = -2;
-  tourSpot(undefined);   // the closing question: cover the whole page
+  tourSpot([]);   // the closing question: cover the whole page
   $('#tourText').innerHTML = '<b>Done with the example?</b> Clear it to go back to ' +
     (beforeExample.source ? 'the search you had before.' : 'an empty page and start your own search.');
   $('#tourNav').hidden = true; $('#tourDone').hidden = false;
