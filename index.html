@@ -1555,8 +1555,9 @@ const TOUR = [
   {el:'#items', text:'<b>2. Choose the years.</b> Use the decade buttons or a year range. 1914 to 1930 are checked here.'},
   {el:'#terms', text:'<b>3. Type what to look for</b>, one per line: an address or a name. Quotes keep words together: <code>"640 N West"</code>.'},
   {el:'.tablewrap', text:'<b>4. Read the hits</b>, grouped by year, with the text around each one. Look for "Walker C J Madam Mfg Co" and the lawyer "Ransom Freeman B", both at 640 N West.', wait:true},
-  {el:'#tbody a', text:'<b>5. Check the scan.</b> Every hit links to its page in the Internet Archive viewer. OCR has errors, so confirm each fact on the page image.', wait:true},
-  {el:'#btnCsv', text:'<b>6. Keep the results.</b> Export CSV, use Cite for a page citation, or Copy for AI to sort the hits into a table you then check.', wait:true},
+  {el:'#tbody a', text:'<b>5. Check the scan.</b> Every hit links to its page in the Internet Archive viewer. OCR has errors, so confirm each fact on the page image. <b>Cite</b>, under the link, copies a citation for that page.', wait:true},
+  {el:'#btnCsv', text:'<b>6. Keep the results.</b> Export CSV saves every hit, with its year, text, page and scan link, as a spreadsheet.', wait:true},
+  {el:'#btnAI', text:'<b>7. Sort with AI (optional).</b> Copy for AI copies the hits plus instructions for ChatGPT, Copilot or a similar assistant to put them in a table, year by year. It asks for a table only, no written summary. Paste up to about 30 hits; for more, export the CSV and choose <i>Instructions only</i>. Check each row against the scan.', wait:true},
 ];
 let tourAt = -1, spotTimer = null;
 /* Keep the cover's opening on the current control; results load and the table grows while the tour runs. */

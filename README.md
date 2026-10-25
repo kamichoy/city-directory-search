@@ -30,7 +30,7 @@ Then visit `http://localhost:8000`. The file can also be hosted as-is on any sta
 
 ## How to use it
 
-New to the tool? Click **Try an example** at the top of the page. It searches the Indianapolis directories from 1914 to 1930 for `"640 N West"`, the address of Madam C. J. Walker's manufacturing company and of her attorney and general manager F. B. Ransom, and walks through the page in six short steps, graying out everything except the part each step describes. First-time visitors also see an invitation to the example in the empty results table; it disappears once they choose a collection or run the example.
+New to the tool? Click **Try an example** at the top of the page. It searches the Indianapolis directories from 1914 to 1930 for `"640 N West"`, the address of Madam C. J. Walker's manufacturing company and of her attorney and general manager F. B. Ransom, and walks through the page in seven short steps, graying out everything except the part each step describes. First-time visitors also see an invitation to the example in the empty results table; it disappears once they choose a collection or run the example.
 
 
 ### 1. Pick the directories
