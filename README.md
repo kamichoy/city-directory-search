@@ -54,8 +54,9 @@ Choosing a source replaces the list of volumes. The choice is remembered in your
 
 Then choose which volumes to search:
 
-- **Select range** selects every volume between two years.
-- **Decade buttons** select a decade. Hold Shift, Ctrl, or Cmd while clicking to add the decade to the current selection instead of replacing it.
+- **Years**: type one year (`1945`), several (`1921, 1945`), or ranges (`1950-1955`, `1950-55`), mixed as you like, and press Enter or **Select**. This replaces the current selection.
+- **Decade buttons** add a decade to the selection, or remove it when it is already all selected. A filled button means every volume of that decade is selected; a half-filled one means some are.
+- The line above the list shows what is selected, for example **Selected: 1921, 1943–1946 · 5 volumes**. Years with no volume in the list don't break a range.
 - **Select all** and **Clear selection** check or uncheck every volume.
 - **Year checkboxes** toggle all volumes for a year. Each volume is listed under its year with its own checkbox, and the × button removes it from the list.
 - **Remove unselected from list** keeps only the checked volumes, and **Empty list** clears everything.
