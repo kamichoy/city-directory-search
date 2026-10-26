@@ -763,8 +763,10 @@ function findAddress(s, addr, re){
   const out = [];
   let m;
   while((m = re.exec(s))){
-    const before = s.slice(Math.max(0, m.index - 24), m.index);
-    const t = before.match(/([\p{L}\p{N}|!]+)([^\p{L}\p{N}|!]{0,3})$/u);
+    // OCR text often has runs of spaces ("rll8    W  Ohio"), so allow any whitespace between the number and
+    // the street, plus up to 3 stray marks
+    const before = s.slice(Math.max(0, m.index - 40), m.index);
+    const t = before.match(/([\p{L}\p{N}|!]+)(\s*[^\p{L}\p{N}|!\s]{0,3}\s*)$/u);
     if(!t) continue;
     const kind = classifyNumber(t[1], addr.num);
     if(kind) out.push({start: m.index - t[0].length, end: m.index + m[0].length, token: t[1], kind});
