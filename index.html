@@ -1498,9 +1498,9 @@ function aiShortBatches(rows){
     'How to read an entry: it starts with the surname and ends with the address(es), each after a code (h householder, r resides, b boards; no code = business address). The person at an address is the name BEFORE it. "Ransom Freeman B lawyer 640 N West h828 N California" = office at 640 N West, home at 828 N California. In "Wong Ming cook Bamboo Inn r118 W Ohio", Bamboo Inn is his employer, not a business at 118 W Ohio. Short capital-letter fragments are usually ads.',
     'Rules: use only these excerpts, no outside knowledge. Correct OCR as reading [original]. If the match belongs to another address or is unrelated, write "not matching" in the note.',
     'Format: a Markdown table, every row on its own line, starting exactly like this:',
-    '| year | hit_id | name as printed | occupation or business | address(es) in the entry, with code | confidence | note (max 10 words) | link |',
+    '| year | hit_id | scan | name as printed | occupation or business | address(es) in the entry, with code | confidence | note (max 10 words) |',
     '|---|---|---|---|---|---|---|---|',
-    'Copy each link exactly as given, so it opens the page scan.',
+    'In the scan column write a clickable Markdown link, [scan](link), with the link copied exactly from the data line.',
     'Write two addresses in one cell, like "640 N West (office); h828 N California".',
     ...(n > 1 ? ['More batches follow. Do this batch now; for each later batch, add its rows to the same table.'] : []),
     '', 'DATA'].join('\n');
