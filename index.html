@@ -1574,7 +1574,8 @@ $('#status').addEventListener('click', e => { if(e.target.id === 'aiNextBatch') 
 let lastCopied = null, checked = null;
 const HID = /^(?:\d{4}|undated)-\d{3}(?:[\s,;]+(?:\d{4}|undated)-\d{3})*$/i;
 const HID_ONE = /(?:\d{4}|undated)-\d{3}/gi;
-const DEFAULT_HEAD = ['year', 'hit_id', 'scan', 'name as printed', 'occupation or business', 'address(es) in the entry, with code', 'confidence', 'note'];
+// the short version's columns (keep in step with SHORT_HEAD in aiShortBatches)
+const DEFAULT_HEAD = ['year', 'hit_id', 'scan', 'entry', 'name as printed', 'occupation or business', 'people named, with role', 'address(es) in the entry, with code', 'confidence', 'note (max 10 words)'];
 function splitCells(line){
   const pipe = line.includes('|');
   let c = (pipe ? line.split('|') : line.split('\t')).map(v => v.trim());
