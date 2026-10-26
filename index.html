@@ -1503,13 +1503,18 @@ function aiShortBatches(rows){
   const qt = t => /^["“].*["”]$/.test(t.trim()) ? t.trim() : `"${t}"`;
   // every batch's answer starts with the header lines: without them, a continued table doesn't render and
   // the rows run together as one paragraph
-  const SHORT_HEAD = '| year | hit_id | scan | name as printed | occupation or business | address(es) in the entry, with code | confidence | note (max 10 words) |\n|---|---|---|---|---|---|---|---|';
+  const SHORT_HEAD = '| year | hit_id | scan | entry | name as printed | occupation or business | people named, with role | address(es) in the entry, with code | confidence | note (max 10 words) |\n|---|---|---|---|---|---|---|---|---|---|';
   const head = n => [
     `Batch 1 of ${n}. Extract facts from city directory OCR into one table. Start with the table now: no introduction, no questions, no summary.`,
     `Searched for: ${terms.map(qt).join(', ')}.`,
     'Each data line is: hit_id TAB year TAB link TAB excerpt. The excerpt is OCR text with errors; the matched words are in [[ ]] and neighboring entries are mixed in.',
     'ONE ROW PER hit_id: the single entry that contains the [[ ]] match. Do not make rows for the neighboring entries.',
-    'How to read an entry: it starts with the surname and ends with the address(es), each after a code (h householder, r resides, b boards; no code = business address). The person at an address is the name BEFORE it. "Ransom Freeman B lawyer 640 N West h828 N California" = office at 640 N West, home at 828 N California. In "Wong Ming cook Bamboo Inn r118 W Ohio", Bamboo Inn is his employer, not a business at 118 W Ohio. Short capital-letter fragments are usually ads.',
+    'Kinds of entry (write the kind in the "entry" column):',
+    '- person: surname first, then occupation and employer, ending with the address(es), each after a code (h householder, r resides, b boards; no code = business address). The person at an address is the name BEFORE it. "Ransom Freeman B lawyer 640 N West h828 N California" = office at 640 N West, home at 828 N California. In "Wong Ming cook Bamboo Inn r118 W Ohio", Bamboo Inn is his employer, not a business at 118 W Ohio.',
+    '- business: the firm\'s own entry: its name, then officers ("Lelia W Robinson pres") or the owner in parentheses, what it does, the address, the phone. List the officers in "people named, with role".',
+    '- classified: a list of firms under a trade heading (such as Toilet Preparations); each item is just a business name and its address. Take the business right before the match. It is not a multi-person entry.',
+    '- street: the street directory: a house number, then its occupant.',
+    '- ad: a short, mostly capital-letter fragment, usually from an advertisement.',
     'Rules: use only these excerpts, no outside knowledge. Correct OCR as reading [original]. If the match belongs to another address or is unrelated, write "not matching" in the note.',
     'Format: a Markdown table, every row on its own line, starting exactly like this:',
     SHORT_HEAD,
