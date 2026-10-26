@@ -232,6 +232,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
       <button id="btnStop" disabled>Stop</button>
     </div>
     <div id="status"></div>
+    <pre id="debugLog" hidden style="font-size:11px;white-space:pre-wrap;max-height:300px;overflow:auto;border:1px solid var(--line);padding:6px;margin-top:6px"></pre>
     <details>
       <summary>Search tips</summary>
       <ul>
@@ -303,6 +304,12 @@ let results = [], sortKey = 'year', sortDir = 1, stopFlag = false;
 $('#terms').value = store.get(LS_TERMS, '');
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* ?debug in the address shows what each search request returned, to diagnose missing hits */
+const DEBUG = new URLSearchParams(location.search).has('debug');
+function debug(line){
+  if(!DEBUG) return;
+  const el = $('#debugLog'); el.hidden = false; el.textContent += line + '\n';
+}
 const status = (msg, cls='') => { $('#status').className = cls; $('#status').innerHTML = msg; };
 
 /* ---------- network: fetch first, JSONP fallback ---------- */
@@ -701,18 +708,14 @@ function parseAddress(query){
 const CONFUSE = {'1':['l','i'], '0':['o'], '8':['b'], '5':['s'], '6':['b'], '2':['z']};
 const TO_DIGIT = {l:'1', i:'1', I:'1', L:'1', '|':'1', '!':'1', O:'0', o:'0', B:'8', S:'5', s:'5', b:'6', Z:'2', z:'2'};
 const PREFIXES = ['', 'r', 'h', 'x', 't'];   // r resides, h householder; x and t are common misreadings of r
-/* The variant numbers, in a few small queries rather than one: a single query of 60 alternatives matches
-   so many passages ("l18", "i18" are common OCR junk) that it can time out or come back incomplete, and the
-   entries that matter (r118 as rll8) are lost. Most likely first: glued to r, then h or b, then r misread
-   as x or t, then the number misread with no code letter. */
-function variantGroups(num){
-  const forms = [num, ...variantTokens(num).filter(t => /^\d|^[li|!oObBsSzZ]/.test(t) && t !== num)];
-  const near = forms.filter(f => [...f].filter((c, i) => c !== num[i]).length <= 1);
-  const uniq = a => [...new Set(a)].filter(t => t !== num);
-  return [uniq(forms.map(f => 'r' + f)),
-          uniq([...forms.map(f => 'h' + f), ...near.map(f => 'b' + f)]),
-          uniq([...near.map(f => 'x' + f), ...near.map(f => 't' + f)]),
-          uniq(forms)].filter(g => g.length);
+/* Fallback when the street is too common to search as a phrase: the house number glued to its code letter
+   (r resides, h householder, b boards; x and t are misreadings of r), as printed and with every 1 read as l. */
+function likelyVariants(num){
+  const l = num.replace(/1/g, 'l');
+  const out = [];
+  for(const p of ['r', 'h', 'b']) out.push(p + num, p + l);
+  out.push('x' + num, 't' + num);
+  return [...new Set(out)];
 }
 function variantTokens(num){
   // number forms with up to two confused characters, fewest substitutions first
@@ -1143,8 +1146,9 @@ async function searchInside(item, term){
   if(item.unindexed) return searchLocal(item, meta, term);
   const {query, apiQuery, phrases} = parseTerm(term);
   const words = [...new Set(wordsOf(query).map(w => w.toLowerCase()))];
-  const inside = q => getJSON(`https://${meta.server}/fulltext/inside.php?item_id=${encodeURIComponent(item.id)}` +
-    `&doc=${encodeURIComponent(meta.doc)}&path=${encodeURIComponent(meta.dir)}&q=${encodeURIComponent(q)}`);
+  const insideURL = q => `https://${meta.server}/fulltext/inside.php?item_id=${encodeURIComponent(item.id)}` +
+    `&doc=${encodeURIComponent(meta.doc)}&path=${encodeURIComponent(meta.dir)}&q=${encodeURIComponent(q)}`;
+  const inside = q => getJSON(insideURL(q));
   const data = await inside(apiQuery);
   if(data && (data.indexed === false || (data.error && /not yet indexed|not indexed/i.test(data.error)))){
     item.unindexed = true;
@@ -1165,37 +1169,50 @@ async function searchInside(item, term){
             ctx: stripMarks(wide || raw).replace(/\s+/g, ' ').trim(), ad: looksLikeAd(raw, leadOf(raw)), _para: norm(raw).slice(0, 400), ...extra};
   };
   const hits = matches.map(mt => mkHit(mt, mt.text || ''));
+  debug(`${item.year ?? item.id} · ${term} · main query: ${(data?.matches || []).length} passages, ${hits.length} kept\n  ${insideURL(apiQuery)}`);
 
-  /* OCR-tolerant addresses. Two quoted phrases in one query must BOTH appear, so variants can't ride along
-     with the main query; instead one extra unquoted query lists the variant numbers (unquoted words are
-     OR'ed), and the street is checked here. The bare number itself is left out: a common number like
-     118 matches thousands of passages and times out. */
+  /* OCR-tolerant addresses. The search index matches whole words, and an OCR-misread number is a word of its
+     own ("rll8" for r118), so a search for 118 never finds it; and a query listing many alternative words
+     finds nothing either (the index doesn't treat them as alternatives). So: search the street as a phrase
+     ("W Ohio"), then keep the passages where the word right before the street reads as the house number
+     once letters that OCR confuses with digits are mapped back (rll8, h1l8, x118 ...). If the street is
+     too common for that query to come back, fall back to the likeliest misread forms as phrases. */
   const addr = parseAddress(query);
   if(addr && opts.tolerant){
     const seen = new Set(hits.map(h => h.page + '|' + norm(h.full || h.text)));
     const re = streetRegex(addr.street);
-    const variantMatches = [];
-    for(const g of variantGroups(addr.num)){
-      try{
-        const d = await inside(g.join(' '));
-        if(d && d.error) throw new Error(d.error);
-        variantMatches.push(...((d && d.matches) || []));
-      }catch(e){
-        if(abortCtl && abortCtl.signal.aborted) throw e;
-        if(lastRun && lastRun.variantFailed) lastRun.variantFailed.add(item.year ?? item.id);   // reported when the run ends
+    const label = item.year ?? item.id;
+    const ask = async q => {
+      const d = await inside(q);
+      if(d && d.error) throw new Error(d.error);
+      const ms = (d && d.matches) || [];
+      debug(`${label} · variant query ${q}: ${ms.length} passages\n  ${insideURL(q)}`);
+      return ms;
+    };
+    let variantMatches = [];
+    try{
+      variantMatches = await ask('"' + addr.street.join(' ') + '"');
+    }catch(e){
+      debug(`${label} · street query FAILED ${e.message}; trying the likeliest misread forms`);
+      if(abortCtl && abortCtl.signal.aborted) throw e;
+      let failed = 0;
+      for(const v of likelyVariants(addr.num)){
+        try{ variantMatches.push(...await ask('"' + v + ' ' + addr.street.join(' ') + '"')); }
+        catch(e2){ if(abortCtl && abortCtl.signal.aborted) throw e2; failed++; debug(`${label} · "${v} …" FAILED ${e2.message}`); }
       }
+      if(failed && lastRun && lastRun.variantFailed) lastRun.variantFailed.add(label);   // reported when the run ends
     }
-    {
-      for(const mt of variantMatches){
-        const raw = stripMarks(mt.text || '');
-        const found = findAddress(raw, addr, re).filter(f => f.kind !== 'exact');
-        if(!found.length) continue;
-        const key = pageOf(mt) + '|' + norm(raw);
-        if(seen.has(key)) continue;
-        seen.add(key);
-        hits.push(mkHit(mt, markSpans(raw, found), {match:'variant', matched:raw.slice(found[0].start, found[0].end).replace(/\s+/g, ' ')}));
-      }
+    let kept = 0;
+    for(const mt of variantMatches){
+      const raw = stripMarks(mt.text || '');
+      const found = findAddress(raw, addr, re).filter(f => f.kind !== 'exact');
+      if(!found.length) continue;
+      const key = pageOf(mt) + '|' + norm(raw);
+      if(seen.has(key)) continue;
+      seen.add(key); kept++;
+      hits.push(mkHit(mt, markSpans(raw, found), {match:'variant', matched:raw.slice(found[0].start, found[0].end).replace(/\s+/g, ' ')}));
     }
+    debug(`${label} · ${kept} passages kept with a misread or prefixed house number`);
   }
   // street directory: the heading pages for this street, then the page that holds the house number
   if(addr && opts.streetdir){
@@ -1280,6 +1297,7 @@ $('#btnRun').onclick = async () => {
   if(!sel.length){ status('Select at least one directory first.', 'err'); return; }
   if(!terms.length){ status('Enter a search term.', 'err'); return; }
   results = []; render(); stopFlag = false;
+  if(DEBUG) $('#debugLog').textContent = '';
   $('#btnRun').disabled = true; $('#btnStop').disabled = false;
   const errors = [];
   const tasks = [];
