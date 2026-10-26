@@ -232,6 +232,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
       <button id="btnStop" disabled>Stop</button>
     </div>
     <div id="status"></div>
+    <pre id="debugLog" hidden style="font-size:11px;white-space:pre-wrap;max-height:300px;overflow:auto;border:1px solid var(--line);padding:6px;margin-top:6px"></pre>
     <details>
       <summary>Search tips</summary>
       <ul>
@@ -303,6 +304,12 @@ let results = [], sortKey = 'year', sortDir = 1, stopFlag = false;
 $('#terms').value = store.get(LS_TERMS, '');
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* ?debug in the address shows what each search request returned, to diagnose missing hits */
+const DEBUG = new URLSearchParams(location.search).has('debug');
+function debug(line){
+  if(!DEBUG) return;
+  const el = $('#debugLog'); el.hidden = false; el.textContent += line + '\n';
+}
 const status = (msg, cls='') => { $('#status').className = cls; $('#status').innerHTML = msg; };
 
 /* ---------- network: fetch first, JSONP fallback ---------- */
@@ -1143,8 +1150,9 @@ async function searchInside(item, term){
   if(item.unindexed) return searchLocal(item, meta, term);
   const {query, apiQuery, phrases} = parseTerm(term);
   const words = [...new Set(wordsOf(query).map(w => w.toLowerCase()))];
-  const inside = q => getJSON(`https://${meta.server}/fulltext/inside.php?item_id=${encodeURIComponent(item.id)}` +
-    `&doc=${encodeURIComponent(meta.doc)}&path=${encodeURIComponent(meta.dir)}&q=${encodeURIComponent(q)}`);
+  const insideURL = q => `https://${meta.server}/fulltext/inside.php?item_id=${encodeURIComponent(item.id)}` +
+    `&doc=${encodeURIComponent(meta.doc)}&path=${encodeURIComponent(meta.dir)}&q=${encodeURIComponent(q)}`;
+  const inside = q => getJSON(insideURL(q));
   const data = await inside(apiQuery);
   if(data && (data.indexed === false || (data.error && /not yet indexed|not indexed/i.test(data.error)))){
     item.unindexed = true;
@@ -1165,6 +1173,7 @@ async function searchInside(item, term){
             ctx: stripMarks(wide || raw).replace(/\s+/g, ' ').trim(), ad: looksLikeAd(raw, leadOf(raw)), _para: norm(raw).slice(0, 400), ...extra};
   };
   const hits = matches.map(mt => mkHit(mt, mt.text || ''));
+  debug(`${item.year ?? item.id} · ${term} · main query: ${(data?.matches || []).length} passages, ${hits.length} kept\n  ${insideURL(apiQuery)}`);
 
   /* OCR-tolerant addresses. Two quoted phrases in one query must BOTH appear, so variants can't ride along
      with the main query; instead one extra unquoted query lists the variant numbers (unquoted words are
@@ -1180,7 +1189,10 @@ async function searchInside(item, term){
         const d = await inside(g.join(' '));
         if(d && d.error) throw new Error(d.error);
         variantMatches.push(...((d && d.matches) || []));
+        const sample = ((d && d.matches) || []).slice(0, 3).map(mt => '    · ' + stripMarks(mt.text || '').replace(/\s+/g, ' ').slice(0, 120)).join('\n');
+        debug(`${item.year ?? item.id} · variant query ${g[0]}…: ${((d && d.matches) || []).length} passages\n  ${insideURL(g.join(' '))}` + (sample ? '\n' + sample : ''));
       }catch(e){
+        debug(`${item.year ?? item.id} · variant query ${g[0]}…: FAILED ${e.message}\n  ${insideURL(g.join(' '))}`);
         if(abortCtl && abortCtl.signal.aborted) throw e;
         if(lastRun && lastRun.variantFailed) lastRun.variantFailed.add(item.year ?? item.id);   // reported when the run ends
       }
@@ -1189,7 +1201,7 @@ async function searchInside(item, term){
       for(const mt of variantMatches){
         const raw = stripMarks(mt.text || '');
         const found = findAddress(raw, addr, re).filter(f => f.kind !== 'exact');
-        if(!found.length) continue;
+        if(!found.length){ debug(`    dropped (no variant number right before the street): ${raw.replace(/\s+/g, ' ').slice(0, 120)}`); continue; }
         const key = pageOf(mt) + '|' + norm(raw);
         if(seen.has(key)) continue;
         seen.add(key);
@@ -1280,6 +1292,7 @@ $('#btnRun').onclick = async () => {
   if(!sel.length){ status('Select at least one directory first.', 'err'); return; }
   if(!terms.length){ status('Enter a search term.', 'err'); return; }
   results = []; render(); stopFlag = false;
+  if(DEBUG) $('#debugLog').textContent = '';
   $('#btnRun').disabled = true; $('#btnStop').disabled = false;
   const errors = [];
   const tasks = [];
