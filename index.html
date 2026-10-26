@@ -1151,17 +1151,8 @@ async function searchInside(item, term){
   const insideURL = q => `https://${meta.server}/fulltext/inside.php?item_id=${encodeURIComponent(item.id)}` +
     `&doc=${encodeURIComponent(meta.doc)}&path=${encodeURIComponent(meta.dir)}&q=${encodeURIComponent(q)}`;
   const inside = q => getJSON(insideURL(q));
-  const data = await inside(apiQuery);
-  if(data && (data.indexed === false || (data.error && /not yet indexed|not indexed/i.test(data.error)))){
-    item.unindexed = true;
-    return searchLocal(item, meta, term);
-  }
-  if(data && data.error) throw new Error(data.error);
-  let matches = data?.matches || [];
-  if(phrases.length || words.length > 1) matches = matches.filter(mt => {
-    const t = norm(mt.text || '');
-    return phrases.every(p => t.includes(p)) && words.every(w => t.includes(' ' + w + ' '));
-  });
+  const notIndexed = d => d && (d.indexed === false || (d.error && /not yet indexed|not indexed/i.test(d.error)));
+  const label = item.year ?? item.id;
   const pageOf = mt => { const par = (mt.par && mt.par[0]) || {}; return par.page ?? (par.boxes && par.boxes[0] && par.boxes[0].page); };
   const mkHit = (mt, raw, extra = {}) => {
     const short = trimSnippet(raw, phrases, words);
@@ -1170,51 +1161,80 @@ async function searchInside(item, term){
             text: short || raw, full: short ? raw : null, page: pageOf(mt), linkBy:'leaf', printed:'',
             ctx: stripMarks(wide || raw).replace(/\s+/g, ' ').trim(), ad: looksLikeAd(raw, leadOf(raw)), _para: norm(raw).slice(0, 400), ...extra};
   };
-  const hits = matches.map(mt => mkHit(mt, mt.text || ''));
-  debug(`${item.year ?? item.id} · ${term} · main query: ${(data?.matches || []).length} passages, ${hits.length} kept\n  ${insideURL(apiQuery)}`);
-
-  /* OCR-tolerant addresses. The search index matches whole words, and an OCR-misread number is a word of its
-     own ("rll8" for r118), so a search for 118 never finds it; and a query listing many alternative words
-     finds nothing either (the index doesn't treat them as alternatives). So: search the street as a phrase
-     ("W Ohio"), then keep the passages where the word right before the street reads as the house number
-     once letters that OCR confuses with digits are mapped back (rll8, h1l8, x118 ...). If the street is
-     too common for that query to come back, fall back to the likeliest misread forms as phrases. */
+  const hits = [], seen = new Set();
   const addr = parseAddress(query);
+
+  /* Addresses, OCR-tolerant. The search index matches whole words, and an OCR-misread number is a word of
+     its own ("rll8" for r118), so a search for 118 never finds it; a query listing many alternative words
+     finds nothing either (the index doesn't treat three or more words as alternatives). So the street is
+     searched as a phrase ("W Ohio"), one request per volume, shared by every address on that street in this
+     run, and each passage is kept where the word right before the street reads as the house number: as
+     printed (exact) or once letters that OCR confuses with digits are mapped back (rll8, h1l8, x118 ...).
+     The exact address needs no query of its own, since its passages are among the street's. If the street
+     is too common for that query to come back, the address and its likeliest misread forms are searched as
+     phrases instead. */
   if(addr && opts.tolerant){
-    const seen = new Set(hits.map(h => h.page + '|' + norm(h.full || h.text)));
     const re = streetRegex(addr.street);
-    const label = item.year ?? item.id;
-    const ask = async q => {
-      const d = await inside(q);
-      if(d && d.error) throw new Error(d.error);
-      const ms = (d && d.matches) || [];
-      debug(`${label} · variant query ${q}: ${ms.length} passages\n  ${insideURL(q)}`);
-      return ms;
-    };
-    let variantMatches = [];
-    try{
-      variantMatches = await ask('"' + addr.street.join(' ') + '"');
-    }catch(e){
-      debug(`${label} · street query FAILED ${e.message}; trying the likeliest misread forms`);
-      if(abortCtl && abortCtl.signal.aborted) throw e;
+    const sq = '"' + addr.street.join(' ') + '"';
+    const cache = lastRun ? (lastRun.streetCache ||= new Map()) : new Map();
+    const ck = item.id + '|' + norm(addr.street.join(' '));
+    if(!cache.has(ck)) cache.set(ck, inside(sq));
+    let d = null, err = null;
+    try{ d = await cache.get(ck); }catch(e){ if(abortCtl && abortCtl.signal.aborted) throw e; err = e; }
+    if(notIndexed(d)){ item.unindexed = true; return searchLocal(item, meta, term); }
+    if(d && !d.error){
+      const ms = d.matches || [];
+      let exact = 0, variant = 0;
+      for(const mt of ms){
+        const raw = stripMarks(mt.text || '');
+        const found = findAddress(raw, addr, re);
+        if(!found.length) continue;
+        const key = pageOf(mt) + '|' + norm(raw);
+        if(seen.has(key)) continue;
+        seen.add(key);
+        if(found.some(f => f.kind === 'exact')){ exact++; hits.push(mkHit(mt, markSpans(raw, found))); }
+        else { variant++; hits.push(mkHit(mt, markSpans(raw, found), {match:'variant', matched:raw.slice(found[0].start, found[0].end).replace(/\s+/g, ' ')})); }
+      }
+      debug(`${label} · ${term} · street query ${sq}: ${ms.length} passages; ${exact} with the number as printed, ${variant} misread or prefixed\n  ${insideURL(sq)}`);
+    }else{
+      debug(`${label} · street query ${sq} FAILED ${err ? err.message : d && d.error}; searching the address and its likeliest misread forms`);
       let failed = 0;
-      for(const v of likelyVariants(addr.num)){
-        try{ variantMatches.push(...await ask('"' + v + ' ' + addr.street.join(' ') + '"')); }
-        catch(e2){ if(abortCtl && abortCtl.signal.aborted) throw e2; failed++; debug(`${label} · "${v} …" FAILED ${e2.message}`); }
+      for(const q of [apiQuery, ...likelyVariants(addr.num).map(v => '"' + v + ' ' + addr.street.join(' ') + '"')]){
+        try{
+          const r = await inside(q);
+          if(notIndexed(r)){ item.unindexed = true; return searchLocal(item, meta, term); }
+          if(r && r.error) throw new Error(r.error);
+          for(const mt of (r && r.matches) || []){
+            const raw = stripMarks(mt.text || '');
+            const found = findAddress(raw, addr, re);
+            if(!found.length) continue;
+            const key = pageOf(mt) + '|' + norm(raw);
+            if(seen.has(key)) continue;
+            seen.add(key);
+            const ex = found.some(f => f.kind === 'exact');
+            hits.push(mkHit(mt, markSpans(raw, found), ex ? {} : {match:'variant', matched:raw.slice(found[0].start, found[0].end).replace(/\s+/g, ' ')}));
+          }
+          debug(`${label} · ${q}: ${((r && r.matches) || []).length} passages`);
+        }catch(e){
+          if(abortCtl && abortCtl.signal.aborted) throw e;
+          if(q === apiQuery) throw e;          // the address itself could not be searched: report it as a failed search
+          failed++; debug(`${label} · ${q} FAILED ${e.message}`);
+        }
       }
       if(failed && lastRun && lastRun.variantFailed) lastRun.variantFailed.add(label);   // reported when the run ends
     }
-    let kept = 0;
-    for(const mt of variantMatches){
-      const raw = stripMarks(mt.text || '');
-      const found = findAddress(raw, addr, re).filter(f => f.kind !== 'exact');
-      if(!found.length) continue;
-      const key = pageOf(mt) + '|' + norm(raw);
-      if(seen.has(key)) continue;
-      seen.add(key); kept++;
-      hits.push(mkHit(mt, markSpans(raw, found), {match:'variant', matched:raw.slice(found[0].start, found[0].end).replace(/\s+/g, ' ')}));
-    }
-    debug(`${label} · ${kept} passages kept with a misread or prefixed house number`);
+  }else{
+    // a name, a business, or an address with OCR tolerance off: one search for the term as typed
+    const data = await inside(apiQuery);
+    if(notIndexed(data)){ item.unindexed = true; return searchLocal(item, meta, term); }
+    if(data && data.error) throw new Error(data.error);
+    let matches = data?.matches || [];
+    if(phrases.length || words.length > 1) matches = matches.filter(mt => {
+      const t = norm(mt.text || '');
+      return phrases.every(p => t.includes(p)) && words.every(w => t.includes(' ' + w + ' '));
+    });
+    matches.forEach(mt => { const raw = mt.text || ''; const key = pageOf(mt) + '|' + norm(raw); if(!seen.has(key)){ seen.add(key); hits.push(mkHit(mt, raw)); } });
+    debug(`${label} · ${term} · ${(data?.matches || []).length} passages, ${hits.length} kept\n  ${insideURL(apiQuery)}`);
   }
   // street directory: the heading pages for this street, then the page that holds the house number
   if(addr && opts.streetdir){
