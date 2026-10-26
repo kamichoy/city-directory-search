@@ -123,6 +123,8 @@ Three ways to use it:
 
 After every copy, the status line gives the length in characters and warns when it is too long for free Copilot.
 
+**Check the AI's table.** When the assistant has answered, copy its table (all batches together is fine) and paste it into **Copy for AI ▸ Check the AI's table…**. Each row is matched to these results by its hit ID and shown next to the original OCR text, with the full scan link and a Cite button. Hit IDs the assistant skipped, and hit IDs that are not in these results (made up, mistyped, or from another search), are listed at the top. **Export CSV** in that window saves the assistant's columns with the check, scan link, citation and original text, including a row for every skipped hit. It reads Markdown tables, tab-separated text copied from a rendered table, and rows a chat app ran together on one line; only tables with a `hit_id` column are read. The results must still be on the page, so run the same search again if you reloaded it.
+
 Nothing is sent anywhere by the tool. Treat the result as a finding aid, not a source: open the link on every row you plan to use and confirm it against the scan, and cite the directory, not the AI.
 
 

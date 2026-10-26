@@ -54,6 +54,24 @@ button.example-btn{padding:2px 10px;font-size:13px;border-color:var(--accent);co
 .invite{padding:34px 20px;text-align:center;color:var(--ink);font-size:14px;line-height:1.5}
 .invite p{margin:0 0 12px}
 .invite span{color:var(--muted)}
+/* Check the AI's table: a dialog, so the main page stays as it is */
+dialog.check{width:min(1100px,calc(100vw - 32px));max-height:calc(100vh - 32px);padding:0;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink)}
+dialog.check::backdrop{background:rgba(0,0,0,.45)}
+.check-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);z-index:1}
+.check-head h2{margin:0;font-size:15px;flex:1}
+.check-body{padding:12px 16px 16px}
+.check-body p{margin:0 0 8px;font-size:13px;color:var(--muted)}
+.check-body textarea{min-height:120px}
+.check-sum{margin:12px 0 8px;font-size:13px}
+.check-sum div{margin-top:4px}
+.check-sum .warn{color:var(--err)}
+.check-wrap{overflow-x:auto}
+.check-wrap table{min-width:720px}
+.check-wrap td{vertical-align:top}
+.ai-read div{margin-bottom:2px}
+.check-wrap .k{color:var(--muted);font-size:11.5px}
+.check-wrap td.snip{max-width:380px}
+tr.unknown td{background:rgba(160,44,44,.08)}
 .tour{position:absolute;z-index:30;width:300px;max-width:calc(100vw - 32px);background:var(--ink);color:var(--bg);border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.45;box-shadow:0 8px 24px rgba(0,0,0,.25)}
 .tour b{color:inherit}
 .tour code{background:rgba(255,255,255,.18);color:inherit;padding:1px 5px}
@@ -115,6 +133,15 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
   <p>Search the OCR full text of city directories on the Internet Archive across many years at once, without downloading the scans. Each result links to its page scan.</p>
   <p class="example"><button id="btnExample" class="example-btn">Try an example</button> <span>Madam C. J. Walker's company at 640 N West Street, Indianapolis, 1914 to 1930.</span></p>
 </header>
+<dialog id="checkDlg" class="check" aria-labelledby="checkTitle">
+  <div class="check-head"><h2 id="checkTitle">Check the AI's table</h2><button id="checkClose" aria-label="Close">Close</button></div>
+  <div class="check-body">
+    <p>Paste the table the assistant made from Copy for AI (all batches together is fine). Each row is matched to these results by its hit ID, so you can read the assistant's reading next to the original text and open the scan. The results must still be on the page: if you reloaded it, run the same search again first.</p>
+    <textarea id="checkIn" placeholder="| year | hit_id | scan | name as printed | …"></textarea>
+    <div class="row"><button class="primary" id="checkRun">Check</button><button id="checkCsv" hidden>Export CSV</button></div>
+    <div id="checkOut"></div>
+  </div>
+</dialog>
 <div id="tourSpot" class="tour-spot" hidden></div>
 <div id="tour" class="tour" role="dialog" aria-live="polite" hidden>
   <div id="tourText"></div>
@@ -238,6 +265,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
         <button role="menuitem" id="aiPaste"><b>Results + instructions</b><span>Paste straight into an AI assistant. Best for up to about 30 results.</span></button>
         <button role="menuitem" id="aiCsv"><b>Instructions only</b><span>For an exported CSV file: attach the file to the assistant and paste these with it.</span></button>
         <button role="menuitem" id="aiShort"><b>Short version, in batches</b><span>For free Copilot and other assistants with a short message limit: one table, copied in pieces of under 4,000 characters.</span></button>
+        <button role="menuitem" id="aiBack"><b>Check the AI's table…</b><span>Paste the table the assistant made: each row gets its scan link, citation and the original text, and skipped or unknown hit IDs are flagged.</span></button>
       </div>
     </div>
     <span id="rcount" style="color:var(--muted);font-size:12px"></span>
@@ -1531,10 +1559,118 @@ async function copyShortBatch(k){
 }
 $('#aiShort').onclick = async () => {
   aiMenu(false);
-  shortBatches = aiShortBatches(exportRows());
+  const rows = exportRows();
+  lastCopied = new Set(rows.flatMap(r => r.hids));
+  shortBatches = aiShortBatches(rows);
   copyShortBatch(0);
 };
 $('#status').addEventListener('click', e => { if(e.target.id === 'aiNextBatch') copyShortBatch(shortAt + 1); });
+
+/* Check the AI's table. The assistant's answer is pasted back and each row is matched to a result by its
+   hit ID: the assistant's reading sits next to the original text, with the full scan link and a citation.
+   Hit IDs the assistant skipped, and ones that are not in these results (made up, or from another search),
+   are flagged. Accepts Markdown tables, tab-separated text copied from a rendered table, and rows that a
+   chat app ran together on one line. Only tables with a "hit_id" column are read. */
+let lastCopied = null, checked = null;
+const HID = /^(?:\d{4}|undated)-\d{3}(?:[\s,;]+(?:\d{4}|undated)-\d{3})*$/i;
+const HID_ONE = /(?:\d{4}|undated)-\d{3}/gi;
+const DEFAULT_HEAD = ['year', 'hit_id', 'scan', 'name as printed', 'occupation or business', 'address(es) in the entry, with code', 'confidence', 'note'];
+function splitCells(line){
+  const pipe = line.includes('|');
+  let c = (pipe ? line.split('|') : line.split('\t')).map(v => v.trim());
+  if(pipe){ if(c.length && c[0] === '') c.shift(); if(c.length && c[c.length - 1] === '') c.pop(); }
+  return c;
+}
+const cleanCell = v => v.replace(/\[([^\]]*)\]\((https?:[^)\s]*)\)/g, '$2').replace(/\*\*|__/g, '').replace(/^\s*`|`\s*$/g, '').trim();
+function parseAITable(text){
+  const rows = [];
+  let head = null, hitCol = -1;
+  String(text).replace(/\r/g, '').split('\n').forEach(line => {
+    if(!line.trim() || /^[\s|:\-–—]+$/.test(line)) return;          // blank or |---| separator
+    const cells = splitCells(line).map(cleanCell);
+    const hc = cells.findIndex(c => /^hit[ _]?id$/i.test(c));
+    if(hc >= 0){ head = cells; hitCol = hc; return; }
+    if(cells.some(c => /^hit[ _]?ids$/i.test(c)) || (cells.length > 1 && cells.every(c => c && !/\d/.test(c)))){ head = null; hitCol = -1; return; }   // another table's header
+    let h = head, col = hitCol;
+    if(!h){   // a batch answered without its header: assume the short version's columns when the second cell is a hit ID
+      if(cells.length > 2 && HID.test(cells[1])){ h = DEFAULT_HEAD; col = 1; } else return;
+    }
+    // every hit ID in the hit_id column starts a row; several rows can sit on one line
+    const starts = [];
+    cells.forEach((c, i) => { if(i - col >= 0 && HID.test(c) && (col === 0 || !HID.test(cells[i - col]))) starts.push(i - col); });
+    starts.forEach((st, k) => {
+      const end = k + 1 < starts.length ? starts[k + 1] : cells.length;
+      let r = cells.slice(st, end);
+      while(r.length > h.length && r[r.length - 1] === '') r.pop();     // the empty cell between run-together rows
+      r = r.slice(0, h.length);
+      const fields = {};
+      h.forEach((label, i) => { if(i !== col) fields[label] = r[i] ?? ''; });
+      rows.push({hids: r[col].match(HID_ONE).map(v => v.toLowerCase()), fields});
+    });
+  });
+  return rows;
+}
+function checkAITable(){
+  const rows = parseAITable($('#checkIn').value);
+  const byHid = new Map(results.map(x => [String(x.hid).toLowerCase(), x]));
+  const out = $('#checkOut');
+  if(!rows.length){
+    out.innerHTML = '<div class="check-sum warn">No rows with a hit ID were found. Paste the whole table, including its header line (the one with "hit_id").</div>';
+    $('#checkCsv').hidden = true; checked = null; return;
+  }
+  const seen = new Set(rows.flatMap(r => r.hids));
+  const expected = lastCopied && [...lastCopied].some(h => byHid.has(String(h).toLowerCase())) ? [...lastCopied].map(h => String(h).toLowerCase()) : [...byHid.keys()];
+  const skipped = expected.filter(h => !seen.has(h)).sort();
+  const unknown = [...seen].filter(h => !byHid.has(h)).sort();
+  checked = {rows, byHid, skipped};
+  const isURL = v => /^https?:\/\//.test(v);
+  const list = a => a.map(h => `<code>${esc(h)}</code>`).join(' ');
+  let html = `<div class="check-sum"><div>${rows.length} row${rows.length === 1 ? '' : 's'} in the assistant's table; ${[...seen].filter(h => byHid.has(h)).length} hit ID${seen.size === 1 ? '' : 's'} matched to these results.</div>` +
+    (skipped.length ? `<div class="warn">Not in the assistant's table (skipped): ${list(skipped)}</div>` : '<div>Every hit ID that was copied is in the table.</div>') +
+    (unknown.length ? `<div class="warn">Not in these results (made up, mistyped, or from another search): ${list(unknown)}</div>` : '') +
+    '<div>Read each row against the original text and the scan before using it.</div></div>';
+  html += '<div class="check-wrap"><table><thead><tr><th>Hit ID</th><th>Assistant\'s reading</th><th>Original text</th><th>Scan</th></tr></thead><tbody>';
+  rows.forEach((r, ri) => {
+    const xs = r.hids.map(h => byHid.get(h)).filter(Boolean), x = xs[0];
+    const reading = Object.entries(r.fields).filter(([k, v]) => v && !isURL(v) && !/^(year|scan|link)$/i.test(k))
+      .map(([k, v]) => `<div><span class="k">${esc(k)}:</span> ${esc(v)}</div>`).join('');
+    html += `<tr class="${x ? '' : 'unknown'}"><td>${r.hids.map(esc).join('<br>')}${x ? `<div class="id">${esc(x.year ?? '')}</div>` : ''}</td>` +
+      `<td class="ai-read">${reading || '<span class="k">(empty)</span>'}</td>` +
+      (x ? `<td class="snip">${snippetHTML(x.ctxMarked || x.text)}</td><td><a href="${pageUrl(x)}" target="_blank" rel="noopener">scan ${x.page ?? '?'}</a>` +
+           (x.printed ? `<div class="id">p. ${esc(x.printed)}</div>` : '') + `<button class="cite" data-check-cite="${ri}">Cite</button></td>`
+         : '<td colspan="2" class="k">Not in these results.</td>') + '</tr>';
+  });
+  out.innerHTML = html + '</tbody></table></div>';
+  $('#checkCsv').hidden = false;
+}
+$('#aiBack').onclick = () => {
+  aiMenu(false);
+  const d = $('#checkDlg');
+  if(d.showModal) d.showModal(); else d.setAttribute('open', '');
+  $('#checkIn').focus();
+};
+$('#checkClose').onclick = () => { const d = $('#checkDlg'); if(d.close) d.close(); else d.removeAttribute('open'); };
+$('#checkRun').onclick = checkAITable;
+$('#checkOut').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-check-cite]'); if(!b || !checked) return;
+  const r = checked.rows[+b.dataset.checkCite], x = r && checked.byHid.get(r.hids[0]); if(!x) return;
+  const ok = await copyText(citation(x));
+  b.textContent = ok ? 'Copied' : 'Copy failed';
+  setTimeout(() => { b.textContent = 'Cite'; }, 1500);
+});
+$('#checkCsv').onclick = () => {
+  if(!checked) return;
+  const labels = [...new Set(checked.rows.flatMap(r => Object.keys(r.fields)))].filter(k => !/^(year|scan|link)$/i.test(k));
+  const head = ['hit_id', 'year', ...labels.map(l => 'ai: ' + l), 'check', 'scan', 'citation', 'original_text'];
+  const line = (hid, x, f, chk) => [hid, x ? x.year ?? '' : '', ...labels.map(l => f[l] ?? ''), chk, x ? pageUrl(x) : '', x ? citation(x) : '', x ? plain(x.ctx || x.text) : ''];
+  const body = checked.rows.map(r => { const x = checked.byHid.get(r.hids[0]); return line(r.hids.join(' '), x, r.fields, x ? 'matched' : 'not in these results'); })
+    .concat(checked.skipped.map(h => line(h, checked.byHid.get(h), {}, 'skipped by the assistant')));
+  const csv = '﻿' + [head, ...body].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = 'ai_table_checked_' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
 
 /* Copy for AI menu: results + instructions to paste, or instructions only to go with an exported CSV */
 function aiMenu(open){
@@ -1560,6 +1696,7 @@ $('#aiList').addEventListener('keydown', e => {
 $('#aiPaste').onclick = async () => {
   aiMenu(false);
   const rows = exportRows();
+  lastCopied = new Set(rows.flatMap(r => r.hids));
   const text = aiText(rows);
   const ok = await copyText(text);
   status(ok ? `Copied ${rows.length} passage${rows.length === 1 ? '' : 's'} with instructions (${text.length.toLocaleString()} characters). Paste it into your AI assistant.` +
@@ -1570,6 +1707,7 @@ $('#aiPaste').onclick = async () => {
 $('#aiCsv').onclick = async () => {
   aiMenu(false);
   const rows = exportRows();
+  lastCopied = new Set(rows.flatMap(r => r.hids));
   const text = aiText(rows, 'csv');
   const ok = await copyText(text);
   status(ok ? `Copied instructions for a CSV of ${rows.length} row${rows.length === 1 ? '' : 's'} (${text.length.toLocaleString()} characters). Attach the exported CSV to your AI assistant and paste these instructions with it. If you changed the filter since exporting, export again so the counts match.` +
