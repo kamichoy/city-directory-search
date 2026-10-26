@@ -1231,13 +1231,23 @@ $('#btnRun').onclick = async () => {
   const tasks = [];
   const run = ++runId, alive = () => run === runId && !stopFlag;
   abortCtl = new AbortController();
-  // hit_id = year + running number, so a row in an exported table or an AI summary can be traced back
+  // hit_id = year + running number, so a row in an exported table or an AI summary can be traced back.
+  // Searches finish in whatever order the network allows, so the numbers given while searching are
+  // provisional; when the run ends, hits are renumbered in a fixed order (volume as listed, then search
+  // term, then the order the volume returned them), so the same search always gives the same hit IDs.
   const perYear = {};
+  const numberHits = () => {
+    const per = {};
+    results.slice().sort((a, b) => a._ord[0] - b._ord[0] || a._ord[1] - b._ord[1] || a._ord[2] - b._ord[2]).forEach(h => {
+      const y = h.year ?? 'undated'; per[y] = (per[y] || 0) + 1; h.hid = `${y}-${String(per[y]).padStart(3, '0')}`;
+    });
+  };
   ctxBudget.left = 80;
   lastRun = {vols: sel.map(i => ({id:i.id, year:i.year})), terms, done: new Set(), failed: new Set()};
-  sel.forEach(it => terms.forEach(t => tasks.push(async () => {
+  sel.forEach((it, vi) => terms.forEach((t, ti) => tasks.push(async () => {
     try{
       const hits = await searchInside(it, t); if(!alive()) return;
+      hits.forEach((h, k) => { h._ord = [vi, ti, k]; });
       hits.forEach(h => { const y = h.year ?? 'undated'; perYear[y] = (perYear[y] || 0) + 1; h.hid = `${y}-${String(perYear[y]).padStart(3, '0')}`; });
       results.push(...hits); lastRun.done.add(it.id + '\u0000' + t); render();
     }
@@ -1251,6 +1261,7 @@ $('#btnRun').onclick = async () => {
     status(`Searching… ${done} / ${tasks.length}, ${results.length} hits so far`);
   });
   abortCtl = null; releasePool = null;
+  if(run === runId){ numberHits(); render(); }
   $('#btnRun').disabled = false; $('#btnStop').disabled = true;
   let msg = `${stopFlag ? 'Stopped' : 'Done'}: ${sel.length} volumes × ${terms.length} terms, ${results.length} hits.`;
   const loc = sel.filter(i => i.unindexed);
