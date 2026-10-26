@@ -1114,6 +1114,9 @@ function trimSnippet(raw, phrases, words = [], W = 130){
   return pick.replace(/\u0001/g, '{{{').replace(/\u0002/g, '}}}');
 }
 function parseTerm(raw){
+  // "118w Ohio" -> "118 w Ohio": a direction letter typed against the house number would make the number
+  // a word of its own ("118w") that no directory prints, so the address search and its OCR variants miss it
+  raw = String(raw).replace(/(^|[\s"“「])(\d{1,5})([NSEWnsew])(?=[\s"”」]|$)/g, '$1$2 $3');
   const phrases = [];
   const Q = /["“”「」]/g, tidy = s => s.replace(/\s+/g, ' ').trim();
   const rest = raw.replace(/["“”「」]([^"“”「」]+)["“”「」]/g, (_, p) => { phrases.push(p); return ' \u0001' + p + '\u0002 '; });
