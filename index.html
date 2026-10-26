@@ -78,7 +78,8 @@ dialog.check::backdrop{background:rgba(0,0,0,.45)}
 .check-wrap .k{color:var(--muted);font-size:11.5px}
 .check-wrap td.snip{max-width:380px}
 tr.unknown td{background:rgba(160,44,44,.08)}
-.tour{position:absolute;z-index:30;width:300px;max-width:calc(100vw - 32px);background:var(--ink);color:var(--bg);border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.45;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.tour.moving{opacity:0;pointer-events:none}
+.tour{transition:opacity .15s;position:absolute;z-index:30;width:300px;max-width:calc(100vw - 32px);background:var(--ink);color:var(--bg);border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.45;box-shadow:0 8px 24px rgba(0,0,0,.25)}
 .tour b{color:inherit}
 .tour code{background:rgba(255,255,255,.18);color:inherit;padding:1px 5px}
 @media (prefers-color-scheme: dark){.tour code{background:rgba(0,0,0,.12)}}
@@ -2000,15 +2001,18 @@ function tourShow(i){
   $('#tourNext').disabled = waiting;
   if(waiting) $('#tourText').innerHTML += '<br><i>Searching… this step continues when results appear.</i>';
   box.hidden = false;
+  box.classList.remove('moving');
   tourSpot(els);   // no controls on the page yet (no results): cover everything
   const r0 = els.length ? unionRect(els) : null;
   if(!r0) return;
+  // keep the bubble out of sight while the page scrolls, so it doesn't show at the previous step's place first
+  box.classList.add('moving');
   // bring the controls into view: centred if they fit with the bubble, otherwise from their top
   const vh = innerHeight;
   const y = r0.height + box.offsetHeight + 40 < vh ? r0.top + r0.height / 2 - vh / 2 + (step.above ? -1 : 1) * box.offsetHeight / 2 : r0.top - 60;
   window.scrollTo({top: window.scrollY + y, behavior: 'smooth'});
   const at = i;
-  setTimeout(() => { if(tourAt === at) spotPlaced(); }, 450);
+  setTimeout(() => { if(tourAt === at){ spotPlaced(); box.classList.remove('moving'); } }, 450);
 }
 /* The example replaces the collection, list and search terms. What was there before is kept, and the
    tour ends by offering to put it back: an empty page for a first visit, or the person's own search. */
@@ -2016,6 +2020,7 @@ let beforeExample = null;
 function tourFinish(){
   if(!beforeExample){ tourShow(-1); return; }
   tourAt = -2;
+  $('#tour').classList.remove('moving');
   tourSpot([]);   // the closing question: cover the whole page
   $('#tourText').innerHTML = '<b>Done with the example?</b> Clear it to go back to ' +
     (beforeExample.source ? 'the search you had before.' : 'an empty page and start your own search.');
