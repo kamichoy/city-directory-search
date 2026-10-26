@@ -237,6 +237,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
       <div class="menu-list" id="aiList" role="menu" hidden>
         <button role="menuitem" id="aiPaste"><b>Results + instructions</b><span>Paste straight into an AI assistant. Best for up to about 30 results.</span></button>
         <button role="menuitem" id="aiCsv"><b>Instructions only</b><span>For an exported CSV file: attach the file to the assistant and paste these with it.</span></button>
+        <button role="menuitem" id="aiShort"><b>Short version, in batches</b><span>For free Copilot and other assistants with a short message limit: one table, copied in pieces of under 4,000 characters.</span></button>
       </div>
     </div>
     <span id="rcount" style="color:var(--muted);font-size:12px"></span>
@@ -1279,7 +1280,7 @@ function snippetHTML(t){
 }
 function filtered(){
   const f = $('#filter').value.trim().toLowerCase();
-  let r = f ? results.filter(x => (stripMarks(x.text) + ' ' + x.term + ' ' + x.year).toLowerCase().includes(f)) : results.slice();
+  let r = f ? results.filter(x => (stripMarks(x.text) + ' ' + x.term + ' ' + x.year + ' ' + (x.hid || '')).toLowerCase().includes(f)) : results.slice();
   r.sort((a,b) => {
     const va = a[sortKey] ?? '', vb = b[sortKey] ?? '';
     return (va > vb ? 1 : va < vb ? -1 : 0) * sortDir || (a.year??0) - (b.year??0) ||
@@ -1474,6 +1475,59 @@ function aiText(rows, mode = 'paste'){
   }
   return L.join('\n');
 }
+/* Short version, for assistants with a small message limit (free Copilot: about 4,000 characters for a
+   personal account) or that stall on a long task. One table, short instructions, short excerpts, no links
+   (the hit ID finds the row here: type it in Filter results). The text is cut into batches that each fit
+   under the limit; the first carries the instructions, the rest say to continue the same table. */
+const SHORT_LIMIT = 3800;
+const LIMIT_WARN = '<span class="approx">Free Copilot accepts only about 4,000 characters per message and silently drops the rest. If you use it, choose Copy for AI ▸ Short version instead.</span>';
+function shortExcerpt(x){
+  const t = aiExcerpt(x).replace(/\s+/g, ' ').trim(), i = t.indexOf('[[');
+  if(t.length <= 420) return t;
+  const a = Math.max(0, (i < 0 ? 0 : i) - 160), b = Math.min(t.length, a + 420);
+  return (a > 0 ? '… ' : '') + t.slice(a, b) + (b < t.length ? ' …' : '');
+}
+function aiShortBatches(rows){
+  const terms = lastRun ? lastRun.terms : [...new Set(rows.flatMap(r => r.terms))];
+  const qt = t => /^["“].*["”]$/.test(t.trim()) ? t.trim() : `"${t}"`;
+  const head = n => [
+    `Batch 1 of ${n}. Extract facts from city directory OCR into one table. Start with the table now: no introduction, no questions, no summary.`,
+    `Searched for: ${terms.map(qt).join(', ')}.`,
+    'Each data line is: hit_id TAB year TAB excerpt. The excerpt is OCR text with errors; the matched words are in [[ ]] and neighboring entries are mixed in.',
+    'How to read it: an entry starts with the surname and ends with the address, after a code (h householder, r resides, b boards). The person at an address is the name BEFORE it. In "Wong Ming cook Bamboo Inn r118 W Ohio", Bamboo Inn is his employer, not a business at 118 W Ohio. Short capital-letter fragments are usually ads.',
+    'Table columns: year | hit_id | name as printed | occupation or business | address as printed, with h/r/b | confidence (high, medium, low) | note, at most 10 words.',
+    'Rules: use only these excerpts, no outside knowledge. Correct OCR as reading [original]. If a hit is another address or unrelated, write "not matching" in the note. Output the table only.',
+    n > 1 ? `More batches follow. Do this batch now; for each later batch, add its rows to the same table.` : '',
+    '', 'DATA'].filter((l, i) => l || i > 6).join('\n');
+  const more = (k, n) => `Batch ${k} of ${n}. Same task: add these rows to the same table, same columns. Table rows only.\n\nDATA`;
+  const lines = rows.map(x => [x.hids.join(' '), x.year ?? '', shortExcerpt(x)].join('\t'));
+  // pack lines into batches; the header length depends on the batch count, so allow for 2-digit counts
+  const budget = k => SHORT_LIMIT - (k === 0 ? head(99).length : more(99, 99).length) - 2;
+  const packs = [[]];
+  let used = 0;
+  lines.forEach(l => {
+    if(packs[packs.length - 1].length && used + l.length + 1 > budget(packs.length - 1)){ packs.push([]); used = 0; }
+    packs[packs.length - 1].push(l); used += l.length + 1;
+  });
+  const n = packs.length;
+  return packs.map((p, k) => (k === 0 ? head(n) : more(k + 1, n)) + '\n' + p.join('\n'));
+}
+let shortBatches = [], shortAt = 0;
+async function copyShortBatch(k){
+  const ok = await copyText(shortBatches[k]);
+  if(!ok){ status('Copy failed.', 'err'); return; }
+  shortAt = k;
+  const n = shortBatches.length, len = shortBatches[k].length.toLocaleString();
+  const next = k + 1 < n ? ` When the assistant has answered, <button class="linkish" id="aiNextBatch">copy batch ${k + 2} of ${n}</button>.` : (n > 1 ? ' That was the last batch.' : '');
+  status(`Copied ${n > 1 ? `batch ${k + 1} of ${n}` : 'the short version'} (${len} characters). Paste it into your AI assistant.${next} To find a row here, type its hit ID in Filter results. Verify every fact against the page scan.`, 'ok');
+}
+$('#aiShort').onclick = async () => {
+  aiMenu(false);
+  shortBatches = aiShortBatches(exportRows());
+  copyShortBatch(0);
+};
+$('#status').addEventListener('click', e => { if(e.target.id === 'aiNextBatch') copyShortBatch(shortAt + 1); });
+
 /* Copy for AI menu: results + instructions to paste, or instructions only to go with an exported CSV */
 function aiMenu(open){
   const list = $('#aiList'), btn = $('#btnAI');
@@ -1500,17 +1554,18 @@ $('#aiPaste').onclick = async () => {
   const rows = exportRows();
   const text = aiText(rows);
   const ok = await copyText(text);
-  const words = Math.round(text.length / 6 / 100) * 100;
-  status(ok ? `Copied ${rows.length} passage${rows.length === 1 ? '' : 's'} with instructions (about ${words.toLocaleString()} words). Paste it into your AI assistant.` +
-      (rows.length > 40 ? ' <span class="approx">More than 40 results: free assistants often stall or cut off long tables. Filter to a decade (type e.g. 192 in Filter results) and copy one batch at a time, or use Export CSV with Copy for AI ▸ Instructions only.</span>' : '') +
+  status(ok ? `Copied ${rows.length} passage${rows.length === 1 ? '' : 's'} with instructions (${text.length.toLocaleString()} characters). Paste it into your AI assistant.` +
+      (text.length > SHORT_LIMIT ? ' ' + LIMIT_WARN : '') +
       ' Verify every fact against the page scan before using it.'
     : 'Copy failed. Use Export CSV instead.', ok ? 'ok' : 'err');
 };
 $('#aiCsv').onclick = async () => {
   aiMenu(false);
   const rows = exportRows();
-  const ok = await copyText(aiText(rows, 'csv'));
-  status(ok ? `Copied instructions for a CSV of ${rows.length} row${rows.length === 1 ? '' : 's'}. Attach the exported CSV to your AI assistant and paste these instructions with it. If you changed the filter since exporting, export again so the counts match.`
+  const text = aiText(rows, 'csv');
+  const ok = await copyText(text);
+  status(ok ? `Copied instructions for a CSV of ${rows.length} row${rows.length === 1 ? '' : 's'} (${text.length.toLocaleString()} characters). Attach the exported CSV to your AI assistant and paste these instructions with it. If you changed the filter since exporting, export again so the counts match.` +
+      ' <span class="approx">If the assistant cuts the instructions off, stalls, or keeps asking to confirm (free Copilot often does), use Copy for AI ▸ Short version instead.</span>'
             : 'Copy failed.', ok ? 'ok' : 'err');
 };
 
