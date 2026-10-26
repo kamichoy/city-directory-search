@@ -1490,6 +1490,9 @@ function shortExcerpt(x){
 function aiShortBatches(rows){
   const terms = lastRun ? lastRun.terms : [...new Set(rows.flatMap(r => r.terms))];
   const qt = t => /^["“].*["”]$/.test(t.trim()) ? t.trim() : `"${t}"`;
+  // every batch's answer starts with the header lines: without them, a continued table doesn't render and
+  // the rows run together as one paragraph
+  const SHORT_HEAD = '| year | hit_id | scan | name as printed | occupation or business | address(es) in the entry, with code | confidence | note (max 10 words) |\n|---|---|---|---|---|---|---|---|';
   const head = n => [
     `Batch 1 of ${n}. Extract facts from city directory OCR into one table. Start with the table now: no introduction, no questions, no summary.`,
     `Searched for: ${terms.map(qt).join(', ')}.`,
@@ -1498,13 +1501,12 @@ function aiShortBatches(rows){
     'How to read an entry: it starts with the surname and ends with the address(es), each after a code (h householder, r resides, b boards; no code = business address). The person at an address is the name BEFORE it. "Ransom Freeman B lawyer 640 N West h828 N California" = office at 640 N West, home at 828 N California. In "Wong Ming cook Bamboo Inn r118 W Ohio", Bamboo Inn is his employer, not a business at 118 W Ohio. Short capital-letter fragments are usually ads.',
     'Rules: use only these excerpts, no outside knowledge. Correct OCR as reading [original]. If the match belongs to another address or is unrelated, write "not matching" in the note.',
     'Format: a Markdown table, every row on its own line, starting exactly like this:',
-    '| year | hit_id | scan | name as printed | occupation or business | address(es) in the entry, with code | confidence | note (max 10 words) |',
-    '|---|---|---|---|---|---|---|---|',
+    SHORT_HEAD,
     'In the scan column write a clickable Markdown link, [scan](link), with the link copied exactly from the data line.',
     'Write two addresses in one cell, like "640 N West (office); h828 N California".',
-    ...(n > 1 ? ['More batches follow. Do this batch now; for each later batch, add its rows to the same table.'] : []),
+    ...(n > 1 ? ['More batches follow. Do this batch now, and answer each later batch the same way, starting again with the two header lines.'] : []),
     '', 'DATA'].join('\n');
-  const more = (k, n) => `Batch ${k} of ${n}. Same task and rules: one row per hit_id, the entry with the [[ ]] match only. Continue the same Markdown table, same columns, every row on its own line. Table rows only.\n\nDATA`;
+  const more = (k, n) => `Batch ${k} of ${n}. Same task and rules: one row per hit_id, the entry with the [[ ]] match only. Answer with a Markdown table that starts with these two lines, then one row per line. Table only.\n${SHORT_HEAD}\n\nDATA`;
   const shortLink = x => pageUrl(x).replace(/\/mode\/2up\?q=.*$/, '');
   const lines = rows.map(x => [x.hids.join(' '), x.year ?? '', shortLink(x), shortExcerpt(x)].join('\t'));
   // pack lines into batches; the header length depends on the batch count, so allow for 2-digit counts
