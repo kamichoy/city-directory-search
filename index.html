@@ -41,6 +41,12 @@ main>div>section:last-child{flex:1;display:flex;flex-direction:column}
 .yhead .n{color:var(--muted);font-weight:400;font-size:11px}
 .ygroup .item{padding-left:30px;border-bottom:0}
 #decades button,#prune button,#srcTools button,.cite{padding:3px 8px;font-size:12px}
+/* decade toggles: filled = every volume of the decade selected, half = some */
+#decades button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+#decades button.part{background:linear-gradient(to top, color-mix(in srgb, var(--accent) 22%, transparent) 50%, transparent 50%);border-color:var(--accent)}
+.sel-summary{margin-top:8px;font-size:13px;line-height:1.4}
+.sel-summary b{font-weight:600}
+.sel-summary .none{color:var(--muted)}
 select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
 .note{color:var(--muted);font-size:12px;margin-top:6px}
 .note:empty{display:none}
@@ -196,14 +202,13 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
     <div class="row"><button id="btnAdd">Add to list</button></div>
 
     <div class="pick">
-      <label style="margin-top:0">Choose volumes to search: by year range</label>
-      <div class="row" style="margin-top:0">
-        <input type="text" id="yFrom" placeholder="1950" style="width:70px">
-        <span>to</span>
-        <input type="text" id="yTo" placeholder="1970" style="width:70px">
-        <button id="btnRange">Select range</button>
+      <label for="yearsIn" style="margin-top:0">Choose volumes to search: years</label>
+      <div class="row" style="margin-top:0;flex-wrap:nowrap">
+        <input type="text" id="yearsIn" placeholder="e.g. 1921, 1945, 1950-1955" style="flex:1;min-width:0">
+        <button id="btnRange">Select</button>
       </div>
-      <div class="row" id="decades" style="margin-top:6px"></div>
+      <div class="row" id="decades" style="margin-top:6px" aria-label="Decades: click to add or remove"></div>
+      <div id="selSummary" class="sel-summary" aria-live="polite"></div>
       <div class="row">
         <button id="btnAll">Select all</button>
         <button id="btnNone">Clear selection</button>
@@ -388,10 +393,47 @@ function renderItems(){
   box.innerHTML = html;
   box.querySelectorAll('[data-partial]').forEach(cb => cb.indeterminate = true);
   const years = new Set(items.filter(i => i.on).map(i => i.year));
-  $('#count').textContent = `${items.filter(i=>i.on).length} selected (${years.size} years) of ${items.length} volumes`;
-  // decade shortcuts
+  $('#count').textContent = `${items.length} volumes in the list`;
+  // decade toggles, showing what is selected in each decade
   const decs = [...new Set(items.filter(i => i.year).map(i => Math.floor(i.year / 10) * 10))].sort((a,b) => a-b);
-  $('#decades').innerHTML = decs.map(d => `<button data-dec="${d}">${d}s</button>`).join('');
+  $('#decades').innerHTML = decs.map(d => {
+    const inD = items.filter(i => i.year >= d && i.year <= d + 9), on = inD.filter(i => i.on).length;
+    const all = on === inD.length, part = on > 0 && !all;
+    return `<button data-dec="${d}" aria-pressed="${all}" class="${part ? 'part' : ''}" title="${on} of ${inD.length} volumes selected; click to ${all ? 'remove' : 'add'} the ${d}s">${d}s</button>`;
+  }).join('');
+  $('#selSummary').innerHTML = selectionSummary();
+}
+/* "Selected: 1914–1930, 1945 · 18 volumes": consecutive selected years are joined into ranges (years with
+   no volume in the list don't break a range) */
+function selectionSummary(){
+  const sel = items.filter(i => i.on);
+  if(!sel.length) return '<span class="none">No volumes selected. Type years above, click a decade, or tick volumes below.</span>';
+  const listed = [...new Set(items.map(i => i.year).filter(y => y != null))].sort((a, b) => a - b);
+  const chosen = new Set(sel.map(i => i.year).filter(y => y != null));
+  const parts = [];
+  let start = null, prev = null;
+  for(const y of listed){
+    if(chosen.has(y)){ if(start == null) start = y; prev = y; }
+    else if(start != null){ parts.push(start === prev ? `${start}` : `${start}–${prev}`); start = null; }
+  }
+  if(start != null) parts.push(start === prev ? `${start}` : `${start}–${prev}`);
+  const undated = sel.filter(i => i.year == null).length;
+  if(undated) parts.push(`${undated} undated`);
+  const shown = parts.length > 12 ? parts.slice(0, 12).join(', ') + `, and ${parts.length - 12} more` : parts.join(', ');
+  return `<b>Selected:</b> ${esc(shown)} · ${sel.length} volume${sel.length === 1 ? '' : 's'}`;
+}
+// "1921, 1945, 1950-1955" -> [[1921,1921],[1945,1945],[1950,1955]]; null if something can't be read
+function parseYears(text){
+  const out = [];
+  for(const tok of String(text).replace(/\s*[-–—]\s*/g, '-').split(/[,;\s]+/).filter(Boolean)){
+    const m = tok.match(/^(\d{4})(?:[-–—](\d{2,4}))?$/);
+    if(!m) return null;
+    const a = +m[1];
+    let b = m[2] ? +m[2] : a;
+    if(m[2] && m[2].length === 2) b = Math.floor(a / 100) * 100 + b;   // 1950-55
+    out.push([Math.min(a, b), Math.max(a, b)]);
+  }
+  return out.length ? out : null;
 }
 function selectRange(a, b, add = false){
   items.forEach(it => {
@@ -401,12 +443,21 @@ function selectRange(a, b, add = false){
   saveItems();
 }
 $('#btnRange').onclick = () => {
-  const a = parseInt($('#yFrom').value) || 0, b = parseInt($('#yTo').value) || 9999;
-  selectRange(Math.min(a,b), Math.max(a,b));
+  const ranges = parseYears($('#yearsIn').value);
+  if(!ranges){ status('Type years like 1921, a list like 1921, 1945, or a range like 1950-1955.', 'err'); $('#yearsIn').focus(); return; }
+  items.forEach(it => { it.on = it.year != null && ranges.some(([a, b]) => it.year >= a && it.year <= b); });
+  saveItems();
+  const n = items.filter(i => i.on).length;
+  if(!n) status('None of those years is in the list.', 'err');
 };
+$('#yearsIn').addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); $('#btnRange').click(); } });
+// a decade button adds its volumes, or removes them when all are already selected
 $('#decades').addEventListener('click', e => {
-  const d = e.target.dataset.dec; if(d == null) return;
-  selectRange(+d, +d + 9, e.shiftKey || e.ctrlKey || e.metaKey);
+  const b = e.target.closest('button[data-dec]'); if(!b) return;
+  const d = +b.dataset.dec, inD = it => it.year != null && it.year >= d && it.year <= d + 9;
+  const all = items.filter(inD).every(it => it.on);
+  items.forEach(it => { if(inD(it)) it.on = !all; });
+  saveItems();
 });
 $('#items').addEventListener('change', e => {
   if(e.target.dataset.i != null){ items[+e.target.dataset.i].on = e.target.checked; saveItems(); }
@@ -1841,7 +1892,7 @@ document.addEventListener('click', e => { const a = e.target.closest('a.report')
 const EXAMPLE = {source:{type:'preset', id:'indianapolis'}, from:1914, to:1930, terms:'"640 N West"'};
 const TOUR = [
   {el:'#source', text:'<b>1. Pick the directories.</b> Choose a city\'s collection. This example uses Indianapolis.'},
-  {el:['.pick > label', '#items'], text:'<b>2. Choose the years.</b> Type a year range, click a decade, or tick volumes in the list. 1914 to 1930 are checked here.'},
+  {el:['.pick > label', '#items'], text:'<b>2. Choose the years.</b> Type years (1921, or 1921, 1945, or 1950-1955), click decades to add or remove them, or tick volumes in the list. The line above the list shows what is selected: 1914 to 1930 here.'},
   {el:'#terms', text:'<b>3. Type what to look for</b>, one per line: an address or a name. Quotes keep words together: <code>"640 N West"</code>.'},
   {el:'.tablewrap', text:'<b>4. Read the hits</b>, grouped by year, with the text around each one. Look for "Walker C J Madam Mfg Co" and the lawyer "Ransom Freeman B", both at 640 N West.', wait:true},
   {el:firstScanCell, text:'<b>5. Check the scan.</b> Every hit links to its page in the Internet Archive viewer. OCR has errors, so confirm each fact on the page image. <b>Cite</b>, under the link, copies a citation for that page.', wait:true},
