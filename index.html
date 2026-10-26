@@ -1612,6 +1612,7 @@ function aiShortBatches(rows){
     '- person: surname first, then occupation and employer, ending with the address(es), each after a code (h householder, r resides, b boards; no code = business address). The person at an address is the name BEFORE it. "Ransom Freeman B lawyer 640 N West h828 N California" = office at 640 N West, home at 828 N California. In "Wong Ming cook Bamboo Inn r118 W Ohio", Bamboo Inn is his employer, not a business at 118 W Ohio.',
     '- business: the firm\'s own entry: its name, then officers ("Lelia W Robinson pres") or the owner in parentheses, what it does, the address, the phone. List the officers in "people named, with role".',
     '- classified: a list of firms under a trade heading (such as Toilet Preparations); each item is just a business name and its address. Take the business or person right before the match; the heading (such as Lawyers) is their occupation or business, if it is in the excerpt. It is not a multi-person entry.',
+    '- A line starting with a ditto mark (" or —) repeats the surname above it. If that surname is in the excerpt, write the full name; if not, write "[surname above]" before the rest of the name and give at most medium.',
     '- street: the street directory: a house number, then its occupant.',
     '- ad: a short, mostly capital-letter fragment, usually from an advertisement.',
     'Rules: use only these excerpts, no outside knowledge. Correct OCR as reading [original]. If the match belongs to another address or is unrelated, write "not matching" in the note.',
