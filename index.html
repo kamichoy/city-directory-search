@@ -1476,8 +1476,8 @@ function aiText(rows, mode = 'paste'){
   return L.join('\n');
 }
 /* Short version, for assistants with a small message limit (free Copilot: about 4,000 characters for a
-   personal account) or that stall on a long task. One table, short instructions, short excerpts, no links
-   (the hit ID finds the row here: type it in Filter results). The text is cut into batches that each fit
+   personal account) or that stall on a long task. One table, short instructions, short excerpts, and a
+   short page link (without the viewer's search box text, to save space). The text is cut into batches that each fit
    under the limit; the first carries the instructions, the rest say to continue the same table. */
 const SHORT_LIMIT = 3800;
 const LIMIT_WARN = '<span class="approx">Free Copilot accepts only about 4,000 characters per message and silently drops the rest. If you use it, choose Copy for AI ▸ Short version instead.</span>';
@@ -1493,18 +1493,20 @@ function aiShortBatches(rows){
   const head = n => [
     `Batch 1 of ${n}. Extract facts from city directory OCR into one table. Start with the table now: no introduction, no questions, no summary.`,
     `Searched for: ${terms.map(qt).join(', ')}.`,
-    'Each data line is: hit_id TAB year TAB excerpt. The excerpt is OCR text with errors; the matched words are in [[ ]] and neighboring entries are mixed in.',
+    'Each data line is: hit_id TAB year TAB link TAB excerpt. The excerpt is OCR text with errors; the matched words are in [[ ]] and neighboring entries are mixed in.',
     'ONE ROW PER hit_id: the single entry that contains the [[ ]] match. Do not make rows for the neighboring entries.',
     'How to read an entry: it starts with the surname and ends with the address(es), each after a code (h householder, r resides, b boards; no code = business address). The person at an address is the name BEFORE it. "Ransom Freeman B lawyer 640 N West h828 N California" = office at 640 N West, home at 828 N California. In "Wong Ming cook Bamboo Inn r118 W Ohio", Bamboo Inn is his employer, not a business at 118 W Ohio. Short capital-letter fragments are usually ads.',
     'Rules: use only these excerpts, no outside knowledge. Correct OCR as reading [original]. If the match belongs to another address or is unrelated, write "not matching" in the note.',
     'Format: a Markdown table, every row on its own line, starting exactly like this:',
-    '| year | hit_id | name as printed | occupation or business | address(es) in the entry, with code | confidence | note (max 10 words) |',
-    '|---|---|---|---|---|---|---|',
+    '| year | hit_id | name as printed | occupation or business | address(es) in the entry, with code | confidence | note (max 10 words) | link |',
+    '|---|---|---|---|---|---|---|---|',
+    'Copy each link exactly as given, so it opens the page scan.',
     'Write two addresses in one cell, like "640 N West (office); h828 N California".',
     ...(n > 1 ? ['More batches follow. Do this batch now; for each later batch, add its rows to the same table.'] : []),
     '', 'DATA'].join('\n');
   const more = (k, n) => `Batch ${k} of ${n}. Same task and rules: one row per hit_id, the entry with the [[ ]] match only. Continue the same Markdown table, same columns, every row on its own line. Table rows only.\n\nDATA`;
-  const lines = rows.map(x => [x.hids.join(' '), x.year ?? '', shortExcerpt(x)].join('\t'));
+  const shortLink = x => pageUrl(x).replace(/\/mode\/2up\?q=.*$/, '');
+  const lines = rows.map(x => [x.hids.join(' '), x.year ?? '', shortLink(x), shortExcerpt(x)].join('\t'));
   // pack lines into batches; the header length depends on the batch count, so allow for 2-digit counts
   const budget = k => SHORT_LIMIT - (k === 0 ? head(99).length : more(99, 99).length) - 2;
   const packs = [[]];
@@ -1523,7 +1525,7 @@ async function copyShortBatch(k){
   shortAt = k;
   const n = shortBatches.length, len = shortBatches[k].length.toLocaleString();
   const next = k + 1 < n ? ` When the assistant has answered, <button class="linkish" id="aiNextBatch">copy batch ${k + 2} of ${n}</button>.` : (n > 1 ? ' That was the last batch.' : '');
-  status(`Copied ${n > 1 ? `batch ${k + 1} of ${n}` : 'the short version'} (${len} characters). Paste it into your AI assistant.${next} To find a row here, type its hit ID in Filter results. Verify every fact against the page scan.`, 'ok');
+  status(`Copied ${n > 1 ? `batch ${k + 1} of ${n}` : 'the short version'} (${len} characters). Paste it into your AI assistant.${next} Each row of the table links to its page scan; to find a row here, type its hit ID in Filter results. Verify every fact against the page scan.`, 'ok');
 }
 $('#aiShort').onclick = async () => {
   aiMenu(false);
