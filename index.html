@@ -1494,12 +1494,16 @@ function aiShortBatches(rows){
     `Batch 1 of ${n}. Extract facts from city directory OCR into one table. Start with the table now: no introduction, no questions, no summary.`,
     `Searched for: ${terms.map(qt).join(', ')}.`,
     'Each data line is: hit_id TAB year TAB excerpt. The excerpt is OCR text with errors; the matched words are in [[ ]] and neighboring entries are mixed in.',
-    'How to read it: an entry starts with the surname and ends with the address, after a code (h householder, r resides, b boards). The person at an address is the name BEFORE it. In "Wong Ming cook Bamboo Inn r118 W Ohio", Bamboo Inn is his employer, not a business at 118 W Ohio. Short capital-letter fragments are usually ads.',
-    'Table columns: year | hit_id | name as printed | occupation or business | address as printed, with h/r/b | confidence (high, medium, low) | note, at most 10 words.',
-    'Rules: use only these excerpts, no outside knowledge. Correct OCR as reading [original]. If a hit is another address or unrelated, write "not matching" in the note. Output the table only.',
-    n > 1 ? `More batches follow. Do this batch now; for each later batch, add its rows to the same table.` : '',
-    '', 'DATA'].filter((l, i) => l || i > 6).join('\n');
-  const more = (k, n) => `Batch ${k} of ${n}. Same task: add these rows to the same table, same columns. Table rows only.\n\nDATA`;
+    'ONE ROW PER hit_id: the single entry that contains the [[ ]] match. Do not make rows for the neighboring entries.',
+    'How to read an entry: it starts with the surname and ends with the address(es), each after a code (h householder, r resides, b boards; no code = business address). The person at an address is the name BEFORE it. "Ransom Freeman B lawyer 640 N West h828 N California" = office at 640 N West, home at 828 N California. In "Wong Ming cook Bamboo Inn r118 W Ohio", Bamboo Inn is his employer, not a business at 118 W Ohio. Short capital-letter fragments are usually ads.',
+    'Rules: use only these excerpts, no outside knowledge. Correct OCR as reading [original]. If the match belongs to another address or is unrelated, write "not matching" in the note.',
+    'Format: a Markdown table, every row on its own line, starting exactly like this:',
+    '| year | hit_id | name as printed | occupation or business | address(es) in the entry, with code | confidence | note (max 10 words) |',
+    '|---|---|---|---|---|---|---|',
+    'Write two addresses in one cell, like "640 N West (office); h828 N California".',
+    ...(n > 1 ? ['More batches follow. Do this batch now; for each later batch, add its rows to the same table.'] : []),
+    '', 'DATA'].join('\n');
+  const more = (k, n) => `Batch ${k} of ${n}. Same task and rules: one row per hit_id, the entry with the [[ ]] match only. Continue the same Markdown table, same columns, every row on its own line. Table rows only.\n\nDATA`;
   const lines = rows.map(x => [x.hids.join(' '), x.year ?? '', shortExcerpt(x)].join('\t'));
   // pack lines into batches; the header length depends on the batch count, so allow for 2-digit counts
   const budget = k => SHORT_LIMIT - (k === 0 ? head(99).length : more(99, 99).length) - 2;
