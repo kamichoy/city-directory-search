@@ -119,6 +119,10 @@ tr.yrow td span{color:var(--muted);font-weight:400;font-size:11px;margin-left:6p
 .bar{height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-bottom:10px}
 .bar>div{height:100%;width:0;background:var(--accent);transition:width .2s}
 table{width:100%;border-collapse:collapse;font-size:13px}
+/* results: keep hit IDs and scan links on one line; with a single search term the Term column is hidden */
+td.hitc .id,td.scanc a{white-space:nowrap}
+table.one-term .termc{display:none}
+td.snip .badges{margin-bottom:4px;font-family:-apple-system,"Segoe UI",sans-serif}
 th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 th{font-size:12px;color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--panel);cursor:pointer;user-select:none}
 td.snip{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;white-space:pre-wrap}
@@ -195,13 +199,16 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
         <li>Limit by year with <code>AND year:[1900 TO 1920]</code>. Volumes with no year in their catalog record are left out by this filter.</li>
         <li>Filter by title, not subject. Subjects are inconsistent, and many directories are tagged only <code>genealogy</code>.</li>
         <li>A query loads at most 1,000 volumes, so filter large collections first.</li>
-        <li>Choosing a collection, finding a city, or loading a query replaces the list below. To combine sources, use <b>Add to list</b> for individual volumes.</li>
+        <li>Choosing a collection, finding a city, or loading a query replaces the list below. To combine sources, use <b>Add volumes by identifier</b> for individual volumes.</li>
         <li>Know a collection that should be in the menu? <a class="report" href="https://docs.google.com/forms/d/e/1FAIpQLSeRDOJSyPZGCEDHtHJRbXHww4__jtgctgO_atAKSTtwa0ASIA/viewform" target="_blank" rel="noopener">Suggest it here</a> (a short form, no sign-in needed).</li>
       </ul>
     </details>
-    <label>Add manually (identifiers or archive.org links, one per line)</label>
-    <textarea id="manual" style="min-height:52px" placeholder="polksindianapoli1967unse"></textarea>
-    <div class="row"><button id="btnAdd">Add to list</button></div>
+    <details id="addManual">
+      <summary>Add volumes by identifier</summary>
+      <label for="manual">Internet Archive identifiers or archive.org links, one per line</label>
+      <textarea id="manual" style="min-height:52px" placeholder="polksindianapoli1967unse"></textarea>
+      <div class="row"><button id="btnAdd">Add to list</button></div>
+    </details>
 
     <div class="pick">
       <label for="yearsIn" style="margin-top:0">Choose volumes to search: years</label>
@@ -281,7 +288,7 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
   <div class="tablewrap">
     <table>
       <thead><tr>
-        <th data-k="year">Year</th><th data-k="term">Term</th><th>OCR excerpt</th><th data-k="page" title="Scan (leaf) number of the page image; the printed page number is shown below it when known">Scan</th>
+        <th data-k="year" id="thYear">Year</th><th data-k="term" class="termc">Term</th><th>OCR excerpt</th><th data-k="page" title="Scan (leaf) number of the page image; the printed page number is shown below it when known">Scan</th>
       </tr></thead>
       <tbody id="tbody"><tr><td colspan="4" class="empty">Results will appear here</td></tr></tbody>
     </table>
@@ -1400,6 +1407,8 @@ $('#btnRun').onclick = async () => {
   if(!sel.length){ status('Select at least one directory first.', 'err'); return; }
   if(!terms.length){ status('Enter a search term.', 'err'); return; }
   results = []; render(); stopFlag = false;
+  // single-column layout (phones): the results are below the fold, so bring them into view
+  if(window.matchMedia('(max-width:900px)').matches && $('#tour').hidden) $('#tbody').closest('section').scrollIntoView({behavior:'smooth', block:'start'});
   if(DEBUG) $('#debugLog').textContent = '';
   $('#btnRun').disabled = true; $('#btnStop').disabled = false;
   const errors = [];
@@ -1488,6 +1497,12 @@ function render(){
   r.forEach(x => counts[x.year] = (counts[x.year] || 0) + 1);
   let last, html = '';
   const grouped = sortKey === 'year';
+  // grouped by year, the year is in each group's heading, so rows show only the hit ID
+  $('#thYear').textContent = grouped ? 'Hit' : 'Year';
+  const oneTerm = new Set(results.map(x => x.term)).size === 1;
+  $('#tbody').closest('table').classList.toggle('one-term', oneTerm);
+  const badges = x => (x.match === 'variant' ? `<div><span class="badge variant" title="Found as an OCR variant of the house number">OCR variant: ${esc(x.matched || '')}</span></div>` : '') +
+    (x.match === 'street' ? `<div><span class="badge street" title="${x.streetExact ? 'From the street directory, where occupants are listed by house number' : 'From the street directory: the number itself was not found (misread or missing), so the nearest house number is shown'}">street directory${x.streetExact ? '' : ' (nearest)'}</span></div>` : '');
   r.forEach(x => {
     if(grouped && x.year !== last){
       last = x.year;
@@ -1497,10 +1512,10 @@ function render(){
     const ri = results.indexOf(x);
     html += `
     <tr>
-      <td>${x.year ?? '?'}${vol}<div class="id" title="Hit ID, also in the CSV and Copy for AI">${esc(x.hid || '')}</div></td>
-      <td>${esc(x.term)}${x.match === 'variant' ? `<div><span class="badge variant" title="Found as an OCR variant of the house number">OCR variant: ${esc(x.matched || '')}</span></div>` : ''}${x.match === 'street' ? `<div><span class="badge street" title="${x.streetExact ? 'From the street directory, where occupants are listed by house number' : 'From the street directory: the number itself was not found (misread or missing), so the nearest house number is shown'}">street directory${x.streetExact ? '' : ' (nearest)'}</span></div>` : ''}</td>
-      <td class="snip${x.full ? ' more' : ''}" data-r="${ri}">${snippetHTML(x._open ? x.full : x.text)}${x.full ? `<span class="tog">${x._open ? 'Collapse' : 'Show full text'}</span>` : ''}${x.ctxNote ? `<div class="ctxnote" title="${esc(x.ctxNote)}">Starts at the match: ${esc(x.ctxNote)}. Open the scan to see the lines before it; on directory pages this is often a margin advertisement or a heading.</div>` : ''}</td>
-      <td><a href="${pageUrl(x)}" target="_blank" rel="noopener"${x.approx ? ' class="approx" title="Estimated from the hit\'s position in the OCR text; the entry may be many pages away"' : ''}>${x.approx ? '≈' : ''}scan ${x.page ?? '?'}</a>` +
+      <td class="hitc">${grouped ? '' : (x.year ?? '?')}${vol}<div class="id" title="Hit ID, also in the CSV and Copy for AI">${esc(x.hid || '')}</div></td>
+      <td class="termc">${esc(x.term)}${oneTerm ? '' : badges(x)}</td>
+      <td class="snip${x.full ? ' more' : ''}" data-r="${ri}">${oneTerm && badges(x) ? `<div class="badges">${badges(x)}</div>` : ''}${snippetHTML(x._open ? x.full : x.text)}${x.full ? `<span class="tog">${x._open ? 'Collapse' : 'Show full text'}</span>` : ''}${x.ctxNote ? `<div class="ctxnote" title="${esc(x.ctxNote)}">Starts at the match: ${esc(x.ctxNote)}. Open the scan to see the lines before it; on directory pages this is often a margin advertisement or a heading.</div>` : ''}</td>
+      <td class="scanc"><a href="${pageUrl(x)}" target="_blank" rel="noopener"${x.approx ? ' class="approx" title="Estimated from the hit\'s position in the OCR text; the entry may be many pages away"' : ''}>${x.approx ? '≈' : ''}scan ${x.page ?? '?'}</a>` +
         (x.printed ? `<div class="id" title="Page number printed in the directory">p. ${esc(x.printed)}</div>` : '') +
         (x.local ? `<div class="id" title="Not in the Internet Archive's full-text index: found in the downloaded OCR text">OCR text</div>` : '') +
         `<button class="cite" data-cite="${ri}" title="Copy a citation for this page">Cite</button></td>
@@ -1521,7 +1536,7 @@ $('#tbody').addEventListener('click', async e => {
   const td = e.target.closest('td.more'); if(!td || getSelection().toString()) return;   // don't toggle while selecting text
   const x = results[+td.dataset.r]; if(!x) return;
   x._open = !x._open;
-  td.innerHTML = snippetHTML(x._open ? x.full : x.text) + `<span class="tog">${x._open ? 'Collapse' : 'Show full text'}</span>`;
+  render();   // redraws the row with its labels and notes
 });
 document.querySelectorAll('th[data-k]').forEach(th => th.onclick = () => {
   const k = th.dataset.k; sortDir = (sortKey === k) ? -sortDir : 1; sortKey = k; render();

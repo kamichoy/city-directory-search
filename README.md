@@ -50,7 +50,7 @@ Choosing a source replaces the list of volumes. The choice is remembered in your
 | `?city=Evansville` | a search by city name |
 | `?q=...` | a custom query |
 
-**Add to list** adds individual Internet Archive identifiers or `archive.org` links, one per line, on top of the current list.
+**Add volumes by identifier** (open it under the collection menu) adds individual Internet Archive identifiers or `archive.org` links, one per line, on top of the current list.
 
 Then choose which volumes to search:
 
