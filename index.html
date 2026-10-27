@@ -1231,7 +1231,28 @@ function parseTerm(raw){
           apiQuery: tidy(bare.replace(/[\u0001\u0002]/g, '"')),       // phrases kept in straight quotes
           phrases: phrases.map(norm)};
 }
+/* The Internet Archive's search servers sometimes fail on a request (an error page with a Python traceback,
+   a timeout, a dropped connection) and the same search works again later. When that happens, the volume is
+   searched in its downloaded OCR text instead, as volumes outside the search index are, so the run still
+   covers it. Only if that fails too does the volume count as failed. */
+const serverError = e => !/aborted|AbortError/i.test(String(e && (e.name + ' ' + e.message)));
 async function searchInside(item, term){
+  try{ return await searchIndexed(item, term); }
+  catch(e){
+    if(!serverError(e) || (abortCtl && abortCtl.signal.aborted)) throw e;
+    debug(`${item.year ?? item.id} · ${term} · search server error (${shortError(e)}); searching the downloaded OCR text instead`);
+    if(lastRun){ (lastRun.serverFallback ||= new Set()).add(item.year ?? item.id); }
+    const meta = await getMeta(item.id);
+    return searchLocal(item, meta, term);
+  }
+}
+// an error page from the search server is a long Python traceback; keep its last line
+function shortError(e){
+  const m = String(e && e.message || e).replace(/\s+/g, ' ').trim();
+  const i = m.search(/[\w.]+(?:Error|Exception|IncompleteRead): [^:]*$/);
+  return (/Traceback/.test(m) ? 'search server error: ' : '') + (i >= 0 ? m.slice(i) : m).slice(0, 160);
+}
+async function searchIndexed(item, term){
   const meta = await getMeta(item.id);
   if(item.unindexed) return searchLocal(item, meta, term);
   const {query, apiQuery, phrases} = parseTerm(term);
@@ -1435,7 +1456,7 @@ $('#btnRun').onclick = async () => {
       hits.forEach(h => { const y = h.year ?? 'undated'; perYear[y] = (perYear[y] || 0) + 1; h.hid = `${y}-${String(perYear[y]).padStart(3, '0')}`; });
       results.push(...hits); lastRun.done.add(it.id + '\u0000' + t); render();
     }
-    catch(e){ if(alive()){ errors.push(`${it.year ?? it.id} · ${t}: ${e.message}`); lastRun.failed.add(it.id + '\u0000' + t); } }
+    catch(e){ if(alive()){ errors.push(`${it.year ?? it.id} · ${t}: ${shortError(e)}`); lastRun.failed.add(it.id + '\u0000' + t); } }
   })));
   let done = 0;
   $('#prog').style.width = '0';
@@ -1454,6 +1475,7 @@ $('#btnRun').onclick = async () => {
     msg += `<br>${loc.map(i => i.year ?? i.id).join(', ')} not in the full-text index; searched the OCR text instead (marked "OCR text").`;
     if(est.size) msg += ` <span class="approx">Page links for ${[...est].join(', ')} are estimates (≈) and may be off by many pages; turn pages to find the entry.</span>`;
   }
+  if(lastRun && lastRun.serverFallback && lastRun.serverFallback.size) msg += `<br><span class="approx">The Internet Archive's search server returned errors for ${[...lastRun.serverFallback].map(esc).join(', ')}, so those volumes were searched in their downloaded OCR text instead (marked "OCR text"; slower, and page links may be approximate).</span>`;
   if(lastRun && lastRun.variantFailed.size) msg += `<br><span class="approx">The OCR-variant search (rll8 for 118 and so on) did not complete for ${[...lastRun.variantFailed].map(esc).join(', ')}; entries printed with a misread number may be missing there. Search again later, or search one variant directly, e.g. "rll8 W Ohio".</span>`;
   if(errors.length) msg += `<br><span class="err">${errors.length} failed:</span>` + errors.slice(0,5).map(esc).join('<br>');
   status(msg, errors.length ? '' : 'ok');
