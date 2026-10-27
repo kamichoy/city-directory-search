@@ -38,7 +38,7 @@ New to the tool? Click **Try an example** at the top of the page. It searches th
 Nothing is loaded until you choose a source in the **Directory collection** menu:
 
 - **A collection from the list.** Collections are grouped by state. Some are filtered to leave out other material the library filed with them (plat books, histories, maps); the note under the menu says so and links to the collection on the Internet Archive.
-- **Search by city name…** finds volumes anywhere on the Internet Archive whose title has that name and the word "directory". Results can include other places with the same name, or phone and church directories; remove those with ×.
+- **Search by city name…** finds volumes anywhere on the Internet Archive whose title has that name and the word "directory". Choose a state to keep only volumes whose title, subjects or coverage name that state ("Indiana" or "Ind."); volumes that name no state are then left out, and the status line says how many were. Links keep the state (`?city=Gary&state=Indiana`). Results can include other places with the same name, or phone and church directories; remove those with ×.
 - **Custom Internet Archive query…** takes any advanced search query, e.g. `collection:allen_county AND title:("fort wayne" AND "city directory")`. **Query notes** lists the syntax.
 
 Choosing a source replaces the list of volumes. The choice is remembered in your browser and shown in the address bar, so you can bookmark it or use **Copy link to this collection** to send a colleague a link that opens the same collection:
