@@ -16,7 +16,7 @@ window.CDS_COLLECTIONS = [
       note: 'Indianapolis Public Library, 1858 to 2001.' },
     { id: 'fort-wayne', label: 'Fort Wayne', q: 'collection:allen_county AND title:("fort wayne" AND "city directory")',
       note: 'Allen County Public Library, filtered to Fort Wayne city directories.' },
-    { id: 'lake-county-in', label: 'Lake County (Gary area)', q: 'collection:LakeCoDirectories AND title:("city directory")',
+    { id: 'lake-county-in', label: 'Lake County (Calumet Region)', q: 'collection:LakeCoDirectories AND title:("city directory")',
       note: 'Lake County Public Library, filtered to city directories (the full collection also holds plat books, phone books and other material).' },
   ]},
   { group: 'California', items: [
