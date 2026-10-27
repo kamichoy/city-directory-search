@@ -166,10 +166,11 @@ code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(-
     <div id="citySrc" hidden>
       <label for="cityName">City or town name</label>
       <div class="row" style="margin-top:0;flex-wrap:nowrap">
-        <input type="text" id="cityName" placeholder="Evansville">
+        <input type="text" id="cityName" placeholder="Evansville" style="flex:1;min-width:0">
+        <select id="cityState" aria-label="State" style="width:auto;max-width:45%"></select>
         <button id="btnCity">Find</button>
       </div>
-      <div class="note">Finds volumes anywhere on the Internet Archive whose title has this name and the word "directory". Results can include other places with the same name, or phone and church directories; remove those with ×.</div>
+      <div class="note">Finds volumes anywhere on the Internet Archive whose title has this name and the word "directory". Choose a state to leave out places with the same name elsewhere; volumes whose catalog record names no state are then left out too, and the status line says how many. Results can still include phone and church directories; remove those with ×.</div>
     </div>
 
     <div id="customSrc" hidden>
@@ -532,21 +533,39 @@ function stateAbbr(s){
     'West Virginia':'WV',Wisconsin:'WI',Wyoming:'WY','District of Columbia':'DC'};
   return m[s] || s;
 }
-// words of a city name, each required in the title, plus "directory"/"directories"
-function cityQuery(city){
+/* State names and the abbreviations library catalogs use for them ("Gary (Ind.)", "Springfield, Ill."). Short
+   ones that are also common words (La, Me, Mo, Pa, Del, Miss, Wash) are left out: they would match other text. */
+const STATE_ABBRS = {Alabama:['Ala'],Arizona:['Ariz'],Arkansas:['Ark'],California:['Calif'],Colorado:['Colo'],Connecticut:['Conn'],
+  Delaware:[],Florida:['Fla'],Georgia:['Ga'],Idaho:[],Illinois:['Ill'],Indiana:['Ind'],Iowa:[],Kansas:['Kan','Kans'],Kentucky:['Ky'],
+  Louisiana:[],Maine:[],Maryland:['Md'],Massachusetts:['Mass'],Michigan:['Mich'],Minnesota:['Minn'],Mississippi:[],Missouri:[],
+  Montana:['Mont'],Nebraska:['Neb','Nebr'],Nevada:['Nev'],'New Hampshire':['N.H.'],'New Jersey':['N.J.'],'New Mexico':['N.M.','N. Mex.'],
+  'New York':['N.Y.'],'North Carolina':['N.C.'],'North Dakota':['N.D.','N. Dak.'],Ohio:[],Oklahoma:['Okla'],Oregon:['Oreg'],
+  Pennsylvania:['Penna'],'Rhode Island':['R.I.'],'South Carolina':['S.C.'],'South Dakota':['S.D.','S. Dak.'],Tennessee:['Tenn'],
+  Texas:['Tex'],Utah:[],Vermont:['Vt'],Virginia:['Va'],Washington:[],'West Virginia':['W. Va.'],Wisconsin:['Wis','Wisc'],Wyoming:['Wyo'],
+  'District of Columbia':['D.C.']};
+const stateTerms = st => [st, ...(STATE_ABBRS[st] || [])].map(t => `"${t}"`).join(' OR ');
+// words of a city name, each required in the title, plus "directory"/"directories"; with a state, the title,
+// subjects or coverage must also name the state
+function cityQuery(city, state = ''){
   const name = city.replace(/["“”()]/g, ' ').replace(/\s+/g, ' ').trim();
-  return `mediatype:texts AND title:("${name}") AND title:(directory OR directories)`;
+  const base = `mediatype:texts AND title:("${name}") AND title:(directory OR directories)`;
+  if(!state || !STATE_ABBRS[state]) return base;
+  const t = stateTerms(state);
+  return `${base} AND (title:(${t}) OR subject:(${t}) OR coverage:(${t}))`;
 }
+(function fillStates(){
+  $('#cityState').innerHTML = '<option value="">Any state</option>' + Object.keys(STATE_ABBRS).map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+})();
 function sourceQuery(s){
   if(!s) return '';
   if(s.type === 'preset'){ const p = presetById(s.id); return p ? p.q : ''; }
-  if(s.type === 'city') return cityQuery(s.city);
+  if(s.type === 'city') return cityQuery(s.city, s.state);
   return s.q || '';
 }
 function sourceParams(s){
   if(!s) return '';
   if(s.type === 'preset') return '?c=' + encodeURIComponent(s.id);
-  if(s.type === 'city') return '?city=' + encodeURIComponent(s.city);
+  if(s.type === 'city') return '?city=' + encodeURIComponent(s.city) + (s.state ? '&state=' + encodeURIComponent(s.state) : '');
   return '?q=' + encodeURIComponent(s.q);
 }
 function showSource(s){
@@ -559,7 +578,7 @@ function showSource(s){
   const p = s && s.type === 'preset' ? presetById(s.id) : null;
   $('#srcNote').innerHTML = p ? esc(p.note || '') + (p.note ? ' ' : '') +
     `<a href="https://archive.org/search?query=${encodeURIComponent(p.q)}" target="_blank" rel="noopener">View on Internet Archive</a>` : '';
-  if(s && s.type === 'city') $('#cityName').value = s.city || '';
+  if(s && s.type === 'city'){ $('#cityName').value = s.city || ''; $('#cityState').value = s.state || ''; }
   if(s && s.type === 'custom') $('#iaQuery').value = s.q || '';
 }
 function setSource(s, load = true){
@@ -569,7 +588,16 @@ function setSource(s, load = true){
   try{ history.replaceState(null, '', location.pathname + sourceParams(s) + location.hash); }catch(e){}
   showSource(s);
   const q = sourceQuery(s);
-  if(load && q) return loadQuery(q);
+  if(load && q) return loadQuery(q).then(() => s.type === 'city' && s.state ? noteOtherStates(s) : undefined);
+}
+// after a city search limited to a state: say how many volumes with that name were left out
+async function noteOtherStates(s){
+  try{
+    const d = await getJSON('https://archive.org/advancedsearch.php?q=' + encodeURIComponent(cityQuery(s.city)) + '&fl[]=identifier&rows=0&output=json');
+    const all = d?.response?.numFound ?? 0, left = all - items.length;
+    if(left > 0 && source === s) $('#status').insertAdjacentHTML('beforeend',
+      ` <span class="approx">${left} more volume${left === 1 ? '' : 's'} named ${esc(s.city)} name another state or none; choose "Any state" to see them.</span>`);
+  }catch(e){}
 }
 $('#source').addEventListener('change', e => {
   const v = e.target.value;
@@ -580,7 +608,8 @@ $('#source').addEventListener('change', e => {
 $('#btnCity').onclick = () => {
   const city = $('#cityName').value.trim();
   if(!city){ $('#cityName').focus(); return; }
-  setSource({type:'city', city});
+  const state = $('#cityState').value;
+  setSource(state ? {type:'city', city, state} : {type:'city', city});
 };
 $('#cityName').addEventListener('keydown', e => { if(e.key === 'Enter') $('#btnCity').click(); });
 $('#btnFind').onclick = () => {
@@ -613,7 +642,7 @@ function sourceFromURL(){
     const p = PRESETS.find(p => p.q === q);
     return p ? {type:'preset', id:p.id} : {type:'custom', q};
   }
-  if(u.get('city')) return {type:'city', city:u.get('city').trim()};
+  if(u.get('city')){ const st = (u.get('state') || '').trim(); return STATE_ABBRS[st] ? {type:'city', city:u.get('city').trim(), state:st} : {type:'city', city:u.get('city').trim()}; }
   if(u.get('q')) return {type:'custom', q:u.get('q').trim()};
   return null;
 }
@@ -1875,7 +1904,7 @@ function yearRanges(ys){
 function feedbackURL(){
   const p = source && source.type === 'preset' ? presetById(source.id) : null;
   const collection = p ? `${p.label}${p.group && p.group !== 'Canada' && p.group !== 'Scotland' ? ', ' + stateAbbr(p.group) : ''} (${p.q})`
-    : source && source.type === 'city' ? `City search: ${source.city}` : source && source.q ? `Custom query: ${source.q}` : '';
+    : source && source.type === 'city' ? `City search: ${source.city}${source.state ? ', ' + source.state : ''}` : source && source.q ? `Custom query: ${source.q}` : '';
   const years = yearRanges(lastRun ? lastRun.vols.map(v => v.year) : items.filter(i => i.on).map(i => i.year));
   const terms = (lastRun ? lastRun.terms : $('#terms').value.split('\n').map(t => t.trim()).filter(Boolean)).join(' | ');
   const q = new URLSearchParams({usp: 'pp_url'});
